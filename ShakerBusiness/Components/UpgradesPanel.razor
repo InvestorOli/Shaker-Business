@@ -1,0 +1,238 @@
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@implements IDisposable
+@inject GameEngineService Engine
+@inject IJSRuntime JS
+
+<div class="mx-auto mb-3 flex max-w-[1100px] gap-2">
+    <button class="@SubTabClass(_subTab == SubTab.Cash)" @onclick="() => _subTab = SubTab.Cash">Cash</button>
+    <button class="@SubTabClass(_subTab == SubTab.Angels)" @onclick="() => _subTab = SubTab.Angels">
+        Investor
+        @if (Engine.GetAngelUpgradeRows().Any(r => r.CanAfford))
+        {
+            <span class="ml-1 inline-block h-2 w-2 rounded-full bg-cartel-crimson"></span>
+        }
+    </button>
+</div>
+
+@if (_subTab == SubTab.Angels)
+{
+    <div class="mx-auto mb-3 flex max-w-[1100px] items-center justify-center gap-2 rounded-[7px] bg-black/20 px-4 py-2.5 text-sm text-cartel-cream/80">
+        <img src="images/businesses/Oli.png" alt="" class="h-6 w-6 rounded-full object-cover"/>
+        <span><strong class="text-cartel-gold-light">@BigNumberFormatter.FormatPlain(Engine.AngelCount)</strong> Anteile verfügbar &middot; Upgrades gehen beim nächsten Reset wieder verloren, ausgegebene Anteile bekommst du dabei nicht zurück</span>
+    </div>
+
+    @if (_angelBulkToast is { } angelToast && (DateTime.UtcNow - angelToast.At) < BulkToastDuration)
+    {
+        <div @key="angelToast.At" class="pointer-events-none fixed left-1/2 top-4 z-[1000] -translate-x-1/2 animate-toast-pop">
+            <div class="animate-shimmer rounded-[7px] border border-cartel-gold bg-[linear-gradient(100deg,var(--color-cartel-espresso)_40%,var(--color-cartel-gold)_50%,var(--color-cartel-espresso)_60%)] bg-[length:250%_100%] px-5 py-2.5 text-center font-bold text-cartel-gold-light shadow-lg">
+                @angelToast.Count Upgrade@(angelToast.Count == 1 ? "" : "s") gekauft!
+            </div>
+        </div>
+    }
+
+    @if (Engine.HasAngelUpgradeWithinBudget)
+    {
+        <button class="no-click-sound mx-auto mb-1 flex max-w-[1100px] rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-4 py-2.5 font-bold text-white transition-transform duration-100 active:translate-y-0.5" @onclick="BuyAllAngelUpgradesAsync">
+            Leistbare Upgrades kaufen (max. 1% der Anteile)
+        </button>
+    }
+
+    @if (_justPurchasedAngel is { } boughtAngel && (DateTime.UtcNow - boughtAngel.At) < PurchaseFlourishDuration)
+    {
+        <div @key="boughtAngel.Upgrade.Id" class="mx-auto mb-2.5 flex max-w-[1100px] flex-wrap items-center gap-4 rounded-[7px] border-2 border-cartel-agave bg-[#eef3e2] px-4 py-2.5 animate-purchased-flourish sm:flex-nowrap">
+            <img src="@(boughtAngel.Upgrade.BusinessId is null ? "images/businesses/Oli.png" : GameData.GetBusiness(boughtAngel.Upgrade.BusinessId).ImagePath)" alt="" class="h-12 w-12 flex-shrink-0 rounded-full border-2 border-cartel-agave object-cover sm:h-16 sm:w-16"/>
+            <div class="flex min-w-0 flex-1 basis-[calc(100%-64px)] flex-col gap-0.5 sm:basis-auto">
+                <span class="text-base font-bold text-cartel-espresso">@boughtAngel.Upgrade.Name</span>
+                <span class="text-sm text-[#4f7a2a]">@boughtAngel.Upgrade.Description</span>
+            </div>
+            <span class="flex-shrink-0 rounded-[7px] bg-cartel-agave px-3 py-1.5 text-sm font-bold text-white">Gekauft</span>
+        </div>
+    }
+
+    <div class="mx-auto flex max-w-[1100px] flex-col gap-2.5">
+        @foreach (var (upgrade, canAfford) in Engine.GetAngelUpgradeRows())
+        {
+            <div class="@PanelRowClass(purchased: false, locked: false)">
+                <img src="@(upgrade.BusinessId is null ? "images/businesses/Oli.png" : GameData.GetBusiness(upgrade.BusinessId).ImagePath)" alt="" class="h-12 w-12 flex-shrink-0 rounded-full border-2 border-cartel-espresso object-cover sm:h-16 sm:w-16"/>
+                <div class="flex min-w-0 flex-1 basis-[calc(100%-64px)] flex-col gap-1 sm:basis-auto">
+                    <span class="text-base font-bold text-cartel-espresso">@upgrade.Name</span>
+                    <span class="text-sm text-cartel-ink/60">@upgrade.Description</span>
+                    <span class="text-[0.68rem] text-cartel-ink/45">Kauf empfohlen ab @BigNumberFormatter.FormatPlain(upgrade.RecommendedAt) Anteile</span>
+                </div>
+
+                <button class="@PanelBuyBtnClass(disabled: !canAfford)" disabled="@(!canAfford)" @onclick="() => BuyAngelUpgradeAsync(upgrade)">
+                    @BigNumberFormatter.FormatPlain(upgrade.Cost)
+                </button>
+            </div>
+        }
+    </div>
+}
+else
+{
+@if (_bulkToast is { } toast && (DateTime.UtcNow - toast.At) < BulkToastDuration)
+{
+    <div @key="toast.At" class="pointer-events-none fixed left-1/2 top-4 z-[1000] -translate-x-1/2 animate-toast-pop">
+        <div class="animate-shimmer rounded-[7px] border border-cartel-gold bg-[linear-gradient(100deg,var(--color-cartel-espresso)_40%,var(--color-cartel-gold)_50%,var(--color-cartel-espresso)_60%)] bg-[length:250%_100%] px-5 py-2.5 text-center font-bold text-cartel-gold-light shadow-lg">
+            @toast.Count Upgrade@(toast.Count == 1 ? "" : "s") gekauft!
+        </div>
+    </div>
+}
+
+<div class="mx-auto flex max-w-[1100px] flex-col gap-2.5">
+    @if (Engine.HasAffordableUpgrade)
+    {
+        <button class="no-click-sound mb-1 rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-4 py-2.5 font-bold text-white transition-transform duration-100 active:translate-y-0.5" @onclick="BuyAllAsync">
+            Alle leistbaren Upgrades kaufen
+        </button>
+    }
+
+    @if (_justPurchased is { } bought && (DateTime.UtcNow - bought.At) < PurchaseFlourishDuration)
+    {
+        <div @key="bought.Upgrade.Id" class="flex flex-wrap items-center gap-4 rounded-[7px] border-2 border-cartel-agave bg-[#eef3e2] px-4 py-2.5 animate-purchased-flourish sm:flex-nowrap">
+            <img src="@(bought.Upgrade.BusinessId is null ? "images/businesses/Oli.png" : GameData.GetBusiness(bought.Upgrade.BusinessId).ImagePath)" alt="" class="h-12 w-12 flex-shrink-0 rounded-full border-2 border-cartel-agave object-cover sm:h-16 sm:w-16"/>
+            <div class="flex min-w-0 flex-1 basis-[calc(100%-64px)] flex-col gap-0.5 sm:basis-auto">
+                <span class="text-base font-bold text-cartel-espresso">@bought.Upgrade.Name</span>
+                <span class="text-sm text-[#4f7a2a]">@UpgradeEffectText(bought.Upgrade)</span>
+            </div>
+            <span class="flex-shrink-0 rounded-[7px] bg-cartel-agave px-3 py-1.5 text-sm font-bold text-white">Gekauft</span>
+        </div>
+    }
+
+    @foreach (var (upgrade, unlocked, canAfford) in Engine.GetUpgradeRows())
+    {
+        <div class="@PanelRowClass(purchased: false, locked: !unlocked)">
+            <img src="@(upgrade.BusinessId is null ? "images/businesses/Oli.png" : GameData.GetBusiness(upgrade.BusinessId).ImagePath)" alt="" class="h-12 w-12 flex-shrink-0 rounded-full border-2 border-cartel-espresso object-cover sm:h-16 sm:w-16"/>
+            <div class="flex min-w-0 flex-1 basis-[calc(100%-64px)] flex-col gap-1 sm:basis-auto">
+                <span class="text-base font-bold text-cartel-espresso">@upgrade.Name</span>
+                <span class="text-sm text-cartel-ink/60">
+                    @if (!unlocked)
+                    {
+                        @($"Freischaltung ab {BigNumberFormatter.FormatDollar(upgrade.RequiredLifetimeEarnings)} Lifetime-Umsatz")
+                    }
+                    else
+                    {
+                        @UpgradeEffectText(upgrade)
+                    }
+                </span>
+            </div>
+
+            <button class="@PanelBuyBtnClass(disabled: !unlocked || !canAfford)" disabled="@(!unlocked || !canAfford)" @onclick="() => BuyAsync(upgrade.Id)">
+                @BigNumberFormatter.FormatDollar(upgrade.Cost)
+            </button>
+        </div>
+    }
+</div>
+}
+
+@code {
+    private enum SubTab { Cash, Angels }
+
+    private SubTab _subTab = SubTab.Cash;
+
+    private const string SubTabBase = "rounded-[7px] border-none px-4 py-2 text-center text-sm font-semibold transition-colors cursor-pointer";
+    private static string SubTabClass(bool active) => active
+        ? $"{SubTabBase} bg-cartel-gold text-cartel-espresso"
+        : $"{SubTabBase} bg-cartel-cream/20 text-cartel-cream/70 hover:bg-cartel-cream/30";
+
+    private (AngelUpgradeDefinition Upgrade, DateTime At)? _justPurchasedAngel;
+    private (int Count, DateTime At)? _angelBulkToast;
+
+    private async Task BuyAngelUpgradeAsync(AngelUpgradeDefinition upgrade)
+    {
+        await Engine.BuyAngelUpgradeAsync(upgrade.Id);
+        await PlayInvestUpgradeAsync();
+        _justPurchasedAngel = (upgrade, DateTime.UtcNow);
+    }
+
+    private async Task BuyAllAngelUpgradesAsync()
+    {
+        var boughtCount = await Engine.BuyAffordableAngelUpgradesWithinBudgetAsync();
+        if (boughtCount > 0)
+        {
+            await PlayInvestUpgradeAsync();
+            _angelBulkToast = (boughtCount, DateTime.UtcNow);
+        }
+    }
+
+    private async Task PlayInvestUpgradeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("shakerAudio.playInvestUpgrade");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private System.Threading.Timer? _liveRefreshTimer;
+
+    protected override void OnInitialized()
+    {
+        _liveRefreshTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(300));
+    }
+
+    private (UpgradeDefinition Upgrade, DateTime At)? _justPurchased;
+    private (int Count, DateTime At)? _bulkToast;
+    private static readonly TimeSpan PurchaseFlourishDuration = TimeSpan.FromMilliseconds(1100);
+    private static readonly TimeSpan BulkToastDuration = TimeSpan.FromSeconds(2.2);
+
+    private static string UpgradeEffectText(UpgradeDefinition upgrade) =>
+        upgrade.AngelEffectivenessBonus > 0
+            ? $"Investor-Effektivität +{(upgrade.AngelEffectivenessBonus * 100).ToString("0.##")}%"
+            : $"x{upgrade.ProfitMultiplier.ToString("0.##")} Profit";
+
+    private async Task BuyAsync(string upgradeId)
+    {
+        var upgrade = GameData.Upgrades.FirstOrDefault(u => u.Id == upgradeId);
+        await Engine.BuyUpgradeAsync(upgradeId);
+        await PlayJaAsync();
+        if (upgrade is not null)
+        {
+            _justPurchased = (upgrade, DateTime.UtcNow);
+        }
+    }
+
+    private async Task BuyAllAsync()
+    {
+        var boughtCount = await Engine.BuyAllAffordableUpgradesAsync();
+        if (boughtCount > 0)
+        {
+            await PlayJaAsync();
+            _bulkToast = (boughtCount, DateTime.UtcNow);
+        }
+    }
+
+    private async Task PlayJaAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("shakerAudio.playJa");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private const string PanelRowBase = "flex flex-wrap items-center gap-5 rounded-[7px] bg-cartel-cream px-5 py-4 shadow-[0_2px_4px_rgba(0,0,0,0.25)] sm:flex-nowrap";
+    private static string PanelRowClass(bool purchased, bool locked)
+    {
+        var classes = PanelRowBase;
+        if (locked) classes += " opacity-55 grayscale-[0.4]";
+        if (purchased) classes += " border-2 border-cartel-agave";
+        return classes;
+    }
+
+    private const string PanelBuyBtnBase = "no-click-sound flex-1 basis-full min-w-0 ml-[64px] w-[calc(100%-64px)] box-border rounded-[7px] px-5 py-3.5 text-base font-bold text-white transition-transform duration-100 active:translate-y-0.5 sm:flex-shrink-0 sm:basis-auto sm:ml-0 sm:w-auto sm:min-w-[130px]";
+    private static string PanelBuyBtnClass(bool disabled)
+    {
+        var color = disabled ? "bg-[#a8a196] cursor-not-allowed" : "bg-gradient-to-b from-cartel-gold to-cartel-rust cursor-pointer";
+        return $"{PanelBuyBtnBase} {color}";
+    }
+
+    public void Dispose()
+    {
+        _liveRefreshTimer?.Dispose();
+    }
+}

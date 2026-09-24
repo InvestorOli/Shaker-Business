@@ -1,0 +1,143 @@
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@implements IDisposable
+@inject GameEngineService Engine
+@inject IJSRuntime JS
+
+@if (_bulkToast is { } toast && (DateTime.UtcNow - toast.At) < BulkToastDuration)
+{
+    <div @key="toast.At" class="pointer-events-none fixed left-1/2 top-4 z-[1000] -translate-x-1/2 animate-toast-pop">
+        <div class="animate-shimmer rounded-[7px] border border-cartel-gold bg-[linear-gradient(100deg,var(--color-cartel-espresso)_40%,var(--color-cartel-gold)_50%,var(--color-cartel-espresso)_60%)] bg-[length:250%_100%] px-5 py-2.5 text-center font-bold text-cartel-gold-light shadow-lg">
+            @toast.Count Manager@(toast.Count == 1 ? "" : "") eingestellt!
+        </div>
+    </div>
+}
+
+<div class="mx-auto flex max-w-[1100px] flex-col gap-2.5">
+    @if (Engine.GetSnapshots().Any(s => s.CanAffordManager))
+    {
+        <button class="no-click-sound mb-1 rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-4 py-2.5 font-bold text-white transition-transform duration-100 active:translate-y-0.5" @onclick="BuyAllAsync">
+            Alle leistbaren Manager einstellen
+        </button>
+    }
+
+    @foreach (var snapshot in Engine.GetSnapshots())
+    {
+        <div class="@PanelRowClass(purchased: snapshot.HasManager, locked: !snapshot.Unlocked)">
+            <img src="@snapshot.Definition.ImagePath" alt="" class="h-12 w-12 flex-shrink-0 rounded-full border-2 border-cartel-espresso object-cover sm:h-16 sm:w-16"/>
+            <div class="flex min-w-0 flex-1 basis-[calc(100%-64px)] flex-col gap-1 sm:basis-auto">
+                <span class="text-base font-bold text-cartel-espresso">Manager: @snapshot.Definition.Name</span>
+                <span class="text-sm text-cartel-ink/60">
+                    @if (snapshot.HasManager)
+                    {
+                        <text>Automatisiert. Läuft auch offline weiter</text>
+                    }
+                    else if (!snapshot.Unlocked)
+                    {
+                        <text>Business noch nicht freigeschaltet</text>
+                    }
+                    else if (snapshot.Owned == 0)
+                    {
+                        <text>Kaufe zuerst mindestens 1 Einheit</text>
+                    }
+                    else
+                    {
+                        <text>Startet Zyklen automatisch neu, auch offline</text>
+                    }
+                </span>
+            </div>
+
+            @if (snapshot.HasManager)
+            {
+                <span class="@PanelOwnedBadgeClass(justHired: WasJustHired(snapshot.Definition.Id))">Angestellt</span>
+            }
+            else
+            {
+                <button class="@PanelBuyBtnClass(disabled: !snapshot.CanAffordManager)" disabled="@(!snapshot.CanAffordManager)" @onclick="() => BuyAsync(snapshot.Definition.Id)">
+                    @BigNumberFormatter.FormatDollar(snapshot.Definition.ManagerCost)
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private System.Threading.Timer? _liveRefreshTimer;
+
+    protected override void OnInitialized()
+    {
+        _liveRefreshTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(300));
+    }
+
+    private readonly Dictionary<string, DateTime> _justHired = [];
+    private static readonly TimeSpan JustHiredWindow = TimeSpan.FromMilliseconds(500);
+
+    private bool WasJustHired(string businessId) =>
+        _justHired.TryGetValue(businessId, out var at) && (DateTime.UtcNow - at) < JustHiredWindow;
+
+    private async Task BuyAsync(string businessId)
+    {
+        await Engine.BuyManagerAsync(businessId);
+        _justHired[businessId] = DateTime.UtcNow;
+        await PlayManagerBuyAsync();
+    }
+
+    private async Task BuyAllAsync()
+    {
+        var hiredBefore = Engine.GetSnapshots().Where(s => s.HasManager).Select(s => s.Definition.Id).ToHashSet();
+        var boughtCount = await Engine.BuyAllAffordableManagersAsync();
+        if (boughtCount > 0)
+        {
+            var now = DateTime.UtcNow;
+            foreach (var snapshot in Engine.GetSnapshots())
+            {
+                if (snapshot.HasManager && !hiredBefore.Contains(snapshot.Definition.Id))
+                {
+                    _justHired[snapshot.Definition.Id] = now;
+                }
+            }
+
+            await PlayManagerBuyAsync();
+            _bulkToast = (boughtCount, now);
+        }
+    }
+
+    private (int Count, DateTime At)? _bulkToast;
+    private static readonly TimeSpan BulkToastDuration = TimeSpan.FromSeconds(2.2);
+
+    private async Task PlayManagerBuyAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("shakerAudio.playManagerBuy");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private const string PanelRowBase = "flex flex-wrap items-center gap-5 rounded-[7px] bg-cartel-cream px-5 py-4 shadow-[0_2px_4px_rgba(0,0,0,0.25)] sm:flex-nowrap";
+    private static string PanelRowClass(bool purchased, bool locked)
+    {
+        var classes = PanelRowBase;
+        if (locked) classes += " opacity-55 grayscale-[0.4]";
+        if (purchased) classes += " border-2 border-cartel-agave";
+        return classes;
+    }
+
+    private const string PanelBuyBtnBase = "no-click-sound flex-1 basis-full min-w-0 ml-[64px] w-[calc(100%-64px)] box-border rounded-[7px] px-5 py-3.5 text-base font-bold text-white transition-transform duration-100 active:translate-y-0.5 sm:flex-shrink-0 sm:basis-auto sm:ml-0 sm:w-auto sm:min-w-[130px]";
+    private static string PanelBuyBtnClass(bool disabled)
+    {
+        var color = disabled ? "bg-[#a8a196] cursor-not-allowed" : "bg-gradient-to-b from-cartel-gold to-cartel-rust cursor-pointer";
+        return $"{PanelBuyBtnBase} {color}";
+    }
+
+    private const string PanelOwnedBadgeBase = "flex-1 basis-full ml-[64px] w-[calc(100%-64px)] box-border rounded-[7px] bg-cartel-agave px-4 py-2.5 text-center text-sm font-bold text-white sm:flex-shrink-0 sm:basis-auto sm:ml-0 sm:w-auto";
+    private static string PanelOwnedBadgeClass(bool justHired) =>
+        justHired ? $"{PanelOwnedBadgeBase} animate-badge-pop-in" : PanelOwnedBadgeBase;
+
+    public void Dispose()
+    {
+        _liveRefreshTimer?.Dispose();
+    }
+}

@@ -1,0 +1,200 @@
+@using ShakerBusiness.Services
+@implements IDisposable
+@inject GlobalChatService Chat
+@inject GameEngineService Engine
+@inject PlayerSessionRegistry SessionRegistry
+@inject IJSRuntime JS
+
+<div class="flex h-full flex-col bg-cartel-cream text-cartel-ink">
+    <div class="flex items-center justify-center gap-1.5 border-b border-cartel-ink/10 bg-[#d9cfc0] px-4 py-2 text-[0.68rem] font-semibold text-cartel-ink/60">
+        <span class="h-1.5 w-1.5 rounded-full bg-cartel-agave"></span>
+        @SessionRegistry.OnlineCount online &middot; Nachrichten verschwinden nach 12 Stunden von selbst.
+    </div>
+
+    <div class="flex flex-1 flex-col gap-2.5 overflow-y-auto p-3" id="global-chat-log">
+        @{
+            var messages = Chat.GetMessages();
+        }
+        @if (messages.Count == 0)
+        {
+            <div class="m-auto text-center text-sm italic text-cartel-ink/60">Noch nichts los hier - wo sind meine Junkies?!</div>
+        }
+
+        @foreach (var msg in messages)
+        {
+            @if (msg.IsSystemMessage)
+            {
+                <div @key="msg.Id" class="flex justify-center animate-bubble-in">
+                    <span class="rounded-[7px] bg-black/5 px-3 py-1 text-center text-[0.7rem] italic text-cartel-ink/40">@msg.Text &middot; @FormatLocalTime(msg.SentUtc)</span>
+                </div>
+            }
+            else
+            {
+                var isSelf = msg.TwitchUserId == Engine.CurrentTwitchUserId;
+                <div @key="msg.Id" class="flex items-start gap-2 animate-bubble-in">
+                    @if (msg.IsAdminPost)
+                    {
+                        <img src="@(msg.ProfileImageUrl ?? "images/businesses/Oli.png")" alt="" class="h-7 w-7 flex-shrink-0 rounded-full object-cover"/>
+                    }
+                    else
+                    {
+                        <img src="@(msg.ProfileImageUrl ?? "images/businesses/Oli.png")" alt="" class="h-7 w-7 flex-shrink-0 cursor-pointer rounded-full object-cover transition-transform hover:scale-110" @onclick="() => OnAvatarClicked.InvokeAsync(msg.TwitchUserId)"/>
+                    }
+                    <div class="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                        <span class="flex items-center gap-1.5 text-xs font-bold text-cartel-espresso">
+                            @msg.DisplayName
+                            @if (msg.IsModerator)
+                            {
+                                <span class="rounded-[7px] bg-cartel-gold px-1 text-[0.58rem] font-bold uppercase tracking-wide text-white shadow-[0_1px_2px_rgba(0,0,0,0.3)]">Mod</span>
+                            }
+                            @if (msg.IsDev)
+                            {
+                                <span class="rounded-[7px] bg-cartel-crimson px-1 text-[0.58rem] font-bold uppercase tracking-wide text-white shadow-[0_1px_2px_rgba(0,0,0,0.3)]">Admin</span>
+                            }
+                            <PrestigeStar Count="msg.PrestigeCount" Class="h-3 w-3 flex-shrink-0"/>
+                            <span class="font-normal text-cartel-ink/40">@FormatLocalTime(msg.SentUtc)</span>
+                        </span>
+                        <div class="max-w-full break-words rounded-[7px] px-3 py-2 text-sm leading-snug @(isSelf ? "bg-cartel-agave text-white" : "border border-[#cbb99f] bg-white text-cartel-ink")">@msg.Text</div>
+                    </div>
+                    @if (Engine.CanModerateChat && (!msg.IsAdminPost || Engine.IsDev || isSelf))
+                    {
+                        <div class="flex flex-shrink-0 flex-col items-end gap-1">
+                            <button class="text-[0.65rem] font-bold text-cartel-crimson hover:underline" @onclick="() => DeleteAsync(msg.Id)">Löschen</button>
+                            @if (!isSelf)
+                            {
+                                <button class="text-[0.65rem] font-bold text-cartel-ink/50 hover:underline" @onclick="() => ToggleBanAsync(msg.TwitchUserId)">@(Chat.IsBanned(msg.TwitchUserId) ? "Entbannen" : "Bannen")</button>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="mx-3 mb-2 rounded-[7px] border-l-4 border-cartel-crimson bg-[#fdeaea] px-3 py-2 text-xs text-cartel-crimson">@_error</div>
+    }
+
+    @if (Chat.IsBanned(Engine.CurrentTwitchUserId ?? ""))
+    {
+        <div class="mx-3 mb-3 rounded-[7px] border-l-4 border-cartel-crimson bg-[#fdeaea] px-3 py-2 text-xs text-cartel-crimson">
+            Du wurdest von einem Moderator vom Chat gesperrt.
+        </div>
+    }
+    else
+    {
+        @if (Engine.CanModerateChat)
+        {
+            <label class="mx-3 mb-1.5 flex cursor-pointer items-center gap-1.5 text-xs text-cartel-ink/60">
+                <input type="checkbox" @bind="_postAsAdmin" class="h-3.5 w-3.5 accent-cartel-gold"/>
+                Als Investor Oli senden
+            </label>
+        }
+        <div class="mx-3 mb-3 flex gap-2">
+            <input @bind="_draft" @bind:event="oninput" @onkeydown="OnKeyDownAsync" maxlength="@GlobalChatService.MaxChars" placeholder="Nachricht..." class="flex-1 rounded-[7px] border border-[#cbb99f] px-3 py-2 text-sm"/>
+            <button class="@SendBtnClass(string.IsNullOrWhiteSpace(_draft))" @onclick="SendAsync" disabled="@string.IsNullOrWhiteSpace(_draft)">Senden</button>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback<string?> OnAvatarClicked { get; set; }
+
+    [Parameter]
+    public int? TimezoneOffsetMinutes { get; set; }
+
+    private string _draft = "";
+    private bool _postAsAdmin;
+    private string? _error;
+    private bool _pendingScroll;
+
+    private string FormatLocalTime(DateTime utc)
+    {
+        var local = TimezoneOffsetMinutes is { } offset ? utc.AddMinutes(-offset) : utc;
+        return local.ToString("HH:mm");
+    }
+
+    protected override void OnInitialized()
+    {
+        Chat.OnChanged += HandleChanged;
+        _pendingScroll = true;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingScroll)
+        {
+            _pendingScroll = false;
+            try
+            {
+                await JS.InvokeVoidAsync("oliChatScrollToBottom", "global-chat-log");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+    }
+
+    private void HandleChanged()
+    {
+        InvokeAsync(() =>
+        {
+            _pendingScroll = true;
+            StateHasChanged();
+        });
+    }
+
+    private async Task OnKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendAsync();
+        }
+    }
+
+    private async Task SendAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draft))
+        {
+            return;
+        }
+
+        var postAsAdmin = Engine.CanModerateChat && _postAsAdmin;
+        var displayName = postAsAdmin ? "Investor Oli" : (Engine.DisplayName ?? "Unbekannt");
+        var profileImageUrl = postAsAdmin ? "images/businesses/Oli.png" : Engine.ProfileImageUrl;
+        var isModerator = !postAsAdmin && Engine.IsModerator;
+        var isDev = !postAsAdmin && Engine.IsDev;
+
+        var (success, error) = await Chat.PostMessageAsync(Engine.CurrentTwitchUserId, displayName, profileImageUrl, isModerator, isDev, postAsAdmin, _draft, Engine.PrestigeCount);
+        if (success)
+        {
+            _draft = "";
+            _error = null;
+            _pendingScroll = true;
+        }
+        else
+        {
+            _error = error;
+        }
+
+        StateHasChanged();
+    }
+
+    private Task DeleteAsync(Guid messageId) =>
+        Chat.DeleteMessageAsync(messageId, Engine.IsModerator, Engine.IsDev);
+
+    private Task ToggleBanAsync(string targetTwitchUserId) =>
+        Chat.SetBannedAsync(targetTwitchUserId, !Chat.IsBanned(targetTwitchUserId), Engine.IsModerator, Engine.IsDev);
+
+    private const string SendBtnBase = "rounded-[7px] px-4 py-2 font-bold text-white transition-transform duration-100 active:translate-y-0.5";
+    private static string SendBtnClass(bool disabled) => disabled
+        ? $"{SendBtnBase} bg-[#a8a196] cursor-not-allowed"
+        : $"{SendBtnBase} bg-gradient-to-b from-cartel-gold to-cartel-rust cursor-pointer";
+
+    public void Dispose()
+    {
+        Chat.OnChanged -= HandleChanged;
+    }
+}

@@ -1,0 +1,219 @@
+@using System.Numerics
+@using ShakerBusiness.Data
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@implements IAsyncDisposable
+@inject LeaderboardService Leaderboards
+@inject GameEngineService Engine
+@inject PlayerSessionRegistry SessionRegistry
+@inject ILogger<Leaderboard> Logger
+
+<div class="box-border w-full max-w-[560px]">
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+            <h3 class="m-0 font-display text-lg tracking-wide text-cartel-cream">Leaderboard Top 50</h3>
+            <span class="text-xs text-cartel-cream/50">nach @(_sortMode switch { SortMode.Angels => "Mr. Oli Anteilen", SortMode.Prestige => "Prestige-Anzahl", SortMode.Snake => "ShakerSnake Highscore", SortMode.Timber => "ShakerTimber Highscore", SortMode.Fishing => "ShakerAngeln-Level", _ => "Lifetime-Umsatz" })</span>
+        </div>
+        <div class="flex gap-1 rounded-[7px] bg-black/20 p-1">
+            <button class="@ToggleBtnClass(_sortMode == SortMode.Earnings)" @onclick="() => _sortMode = SortMode.Earnings">Lifetime-Umsatz</button>
+            <button class="@ToggleBtnClass(_sortMode == SortMode.Angels)" @onclick="() => _sortMode = SortMode.Angels">Anteile</button>
+            @if (AnyPrestige)
+            {
+                <button class="@ToggleBtnClass(_sortMode == SortMode.Prestige)" @onclick="() => _sortMode = SortMode.Prestige">Prestige</button>
+            }
+            <button class="@ToggleBtnClass(_sortMode == SortMode.Snake)" @onclick="() => _sortMode = SortMode.Snake">Snake</button>
+            <button class="@ToggleBtnClass(_sortMode == SortMode.Timber)" @onclick="() => _sortMode = SortMode.Timber">Timber</button>
+            <button class="@ToggleBtnClass(_sortMode == SortMode.Fishing)" @onclick="() => _sortMode = SortMode.Fishing">Angeln</button>
+        </div>
+    </div>
+
+    @{
+        var sorted = SortedAccounts();
+        var top = sorted.Take(Take).ToList();
+        var selfIndex = sorted.FindIndex(p => p.TwitchUserId == Engine.CurrentTwitchUserId);
+        var selfRank = selfIndex >= 0 ? selfIndex + 1 : (int?)null;
+        var selfAccount = _accounts.FirstOrDefault(p => p.TwitchUserId == Engine.CurrentTwitchUserId);
+    }
+
+    @if (top.Count == 0)
+    {
+        <p class="m-0 text-center text-sm text-cartel-cream/70">Noch keine Einträge.</p>
+    }
+    else
+    {
+        <ol class="m-0 flex list-none flex-col gap-1.5 p-0">
+            @for (var i = 0; i < top.Count; i++)
+            {
+                var player = top[i];
+                var isSelf = player.TwitchUserId == Engine.CurrentTwitchUserId;
+                var prestigeCount = PrestigeCountOf(player);
+                <li class="@LeaderboardRowClass(top3: i < 3, self: isSelf) cursor-pointer" @onclick="() => OnPlayerSelected.InvokeAsync(player.TwitchUserId)">
+                    <span class="w-6 flex-shrink-0 text-center font-bold text-cartel-ink/60">@(i + 1)</span>
+                    @if (!string.IsNullOrEmpty(player.ProfileImageUrl))
+                    {
+                        <div class="relative flex-shrink-0">
+                            <img src="@player.ProfileImageUrl" draggable="false" alt="" class="h-7 w-7 rounded-full"/>
+                            @{ var presence = SessionRegistry.GetPresence(player.TwitchUserId); }
+                            <span title="@presence.Label()" class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-cartel-cream @presence.DotColorClass()"></span>
+                        </div>
+                    }
+                    <div class="flex min-w-0 flex-1 flex-col">
+                        <span class="flex items-center gap-1.5 truncate font-bold text-cartel-espresso">
+                            @player.DisplayName
+                            @if (player.IsModerator)
+                            {
+                                <span class="rounded-[7px] bg-cartel-gold px-1 text-[0.58rem] font-bold uppercase tracking-wide text-white shadow-[0_1px_2px_rgba(0,0,0,0.3)]">Mod</span>
+                            }
+                            @if (player.IsDev)
+                            {
+                                <span class="rounded-[7px] bg-cartel-crimson px-1 text-[0.58rem] font-bold uppercase tracking-wide text-white shadow-[0_1px_2px_rgba(0,0,0,0.3)]">Admin</span>
+                            }
+                        </span>
+                        <span class="break-words text-xs font-extrabold tabular-nums text-cartel-agave">@DisplayValue(player)</span>
+                    </div>
+                    <PrestigeStar Count="prestigeCount"/>
+                </li>
+            }
+        </ol>
+
+        @if (selfRank is { } rank && rank > top.Count)
+        {
+            <div class="mt-1.5 flex cursor-pointer items-center gap-2.5 rounded-[7px] border-t-2 border-dashed border-cartel-gold bg-cartel-cream px-3 py-2 text-sm text-cartel-ink animate-glow-pulse" @onclick="() => OnPlayerSelected.InvokeAsync(Engine.CurrentTwitchUserId)">
+                <span class="w-6 flex-shrink-0 text-center font-bold text-cartel-ink/60">@rank</span>
+                @if (!string.IsNullOrEmpty(Engine.ProfileImageUrl))
+                {
+                    <div class="relative flex-shrink-0">
+                        <img src="@Engine.ProfileImageUrl" alt="" class="h-7 w-7 rounded-full"/>
+                        @{ var selfPresence = SessionRegistry.GetPresence(Engine.CurrentTwitchUserId ?? ""); }
+                        <span title="@selfPresence.Label()" class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-cartel-cream @selfPresence.DotColorClass()"></span>
+                    </div>
+                }
+                <div class="flex min-w-0 flex-1 flex-col">
+                    <span class="flex items-center gap-1.5 truncate font-bold text-cartel-espresso">
+                        @Engine.DisplayName
+                        @if (Engine.IsModerator)
+                        {
+                            <span class="rounded-[7px] bg-cartel-gold px-1 text-[0.58rem] font-bold uppercase tracking-wide text-white shadow-[0_1px_2px_rgba(0,0,0,0.3)]">Mod</span>
+                        }
+                        @if (Engine.IsDev)
+                        {
+                            <span class="rounded-[7px] bg-cartel-crimson px-1 text-[0.58rem] font-bold uppercase tracking-wide text-white shadow-[0_1px_2px_rgba(0,0,0,0.3)]">Admin</span>
+                        }
+                    </span>
+                    <span class="break-words text-xs font-extrabold tabular-nums text-cartel-agave">@(_sortMode switch { SortMode.Angels => BigNumberFormatter.FormatPlain(Engine.AngelCount), SortMode.Prestige => $"{Engine.PrestigeCount}x Prestige", SortMode.Snake => $"{Engine.SnakeHighScore} Punkte", SortMode.Timber => $"{Engine.TimberHighScore} Punkte", SortMode.Fishing => $"Level {FishingData.LevelForXp(selfAccount?.FishingXp ?? 0)}", _ => BigNumberFormatter.FormatDollar(Engine.LifetimeEarnings) })</span>
+                </div>
+                <PrestigeStar Count="Engine.PrestigeCount"/>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private const int Take = 50;
+    private static readonly TimeSpan DbRefreshInterval = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan LiveTickInterval = TimeSpan.FromMilliseconds(500);
+
+    [Parameter]
+    public EventCallback<string> OnPlayerSelected { get; set; }
+
+    private enum SortMode { Earnings, Angels, Prestige, Snake, Timber, Fishing }
+
+    private IReadOnlyList<PlayerAccount> _accounts = [];
+    private SortMode _sortMode = SortMode.Earnings;
+    private Timer? _refreshTimer;
+    private Timer? _liveTickTimer;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync(forceRefresh: false);
+        _refreshTimer = new Timer(async _ => await InvokeAsync(() => LoadAsync(forceRefresh: false)), null, DbRefreshInterval, DbRefreshInterval);
+        _liveTickTimer = new Timer(_ => InvokeAsync(StateHasChanged), null, LiveTickInterval, LiveTickInterval);
+    }
+
+    public Task RefreshAsync() => LoadAsync(forceRefresh: true);
+
+    private async Task LoadAsync(bool forceRefresh)
+    {
+        try
+        {
+            _accounts = await Leaderboards.GetAccountsAsync(forceRefresh);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Leaderboard refresh failed - will retry on the next tick");
+            return;
+        }
+
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private bool AnyPrestige => (!Engine.IsHidden && Engine.PrestigeCount > 0) || _accounts.Any(p => p.PrestigeCount > 0);
+
+    private BigInteger Metric(PlayerAccount p) => _sortMode switch
+    {
+        SortMode.Angels => p.TwitchUserId == Engine.CurrentTwitchUserId ? Engine.AngelCount : p.AngelCount,
+        SortMode.Prestige => p.TwitchUserId == Engine.CurrentTwitchUserId ? Engine.PrestigeCount : p.PrestigeCount,
+        SortMode.Snake => p.TwitchUserId == Engine.CurrentTwitchUserId ? Engine.SnakeHighScore : p.SnakeHighScore,
+        SortMode.Timber => p.TwitchUserId == Engine.CurrentTwitchUserId ? Engine.TimberHighScore : p.TimberHighScore,
+        SortMode.Fishing => p.FishingXp,
+        _ => p.TwitchUserId == Engine.CurrentTwitchUserId ? Engine.LifetimeEarnings : p.LifetimeEarnings,
+    };
+
+    private DateTime? LastPrestigeUtc(PlayerAccount p) =>
+        p.TwitchUserId == Engine.CurrentTwitchUserId ? Engine.LastPrestigeUtc : p.LastPrestigeUtc;
+
+    private int PrestigeCountOf(PlayerAccount p) =>
+        p.TwitchUserId == Engine.CurrentTwitchUserId ? Engine.PrestigeCount : p.PrestigeCount;
+
+    private List<PlayerAccount> SortedAccounts()
+    {
+        if (_sortMode == SortMode.Prestige)
+        {
+            return _accounts
+                .Where(p => Metric(p) > 0)
+                .OrderByDescending(Metric)
+                .ThenBy(LastPrestigeUtc)
+                .ToList();
+        }
+
+        IEnumerable<PlayerAccount> accounts = _sortMode == SortMode.Earnings ? _accounts : _accounts.Where(p => Metric(p) > 0);
+        return accounts.OrderByDescending(Metric).ToList();
+    }
+
+    private string DisplayValue(PlayerAccount p) => _sortMode switch
+    {
+        SortMode.Angels => BigNumberFormatter.FormatPlain(Metric(p)),
+        SortMode.Prestige => $"{Metric(p)}x Prestige",
+        SortMode.Snake => $"{Metric(p)} Punkte",
+        SortMode.Timber => $"{Metric(p)} Punkte",
+        SortMode.Fishing => $"Level {FishingData.LevelForXp(p.FishingXp)}",
+        _ => BigNumberFormatter.FormatDollar(Metric(p)),
+    };
+
+    private const string ToggleBtnBase = "rounded-[7px] px-2.5 py-1 text-xs font-bold transition-colors";
+    private static string ToggleBtnClass(bool active) => active
+        ? $"{ToggleBtnBase} bg-cartel-gold text-cartel-espresso"
+        : $"{ToggleBtnBase} text-cartel-cream/60 hover:text-cartel-cream";
+
+    private const string LeaderboardRowBase = "flex items-center gap-2.5 rounded-[7px] bg-cartel-cream px-3 py-2 text-sm text-cartel-ink";
+    private static string LeaderboardRowClass(bool top3, bool self)
+    {
+        var classes = LeaderboardRowBase;
+        if (top3) classes += " border border-cartel-gold bg-[#fff3d6]";
+        if (self) classes += " animate-glow-pulse";
+        return classes;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_refreshTimer is not null)
+        {
+            await _refreshTimer.DisposeAsync();
+        }
+
+        if (_liveTickTimer is not null)
+        {
+            await _liveTickTimer.DisposeAsync();
+        }
+    }
+}

@@ -1,0 +1,27 @@
+@inherits LayoutComponentBase
+
+<div class="flex min-h-screen flex-col">
+    <header class="flex flex-wrap items-baseline gap-2 border-b-4 border-cartel-gold bg-cartel-espresso px-4 py-4 sm:gap-4 sm:px-6">
+        <span class="font-display text-xl tracking-wide text-cartel-gold sm:text-2xl">
+            <a href="/">Shaker Business</a>
+        </span>
+        <span class="text-xs text-cartel-cream/60 sm:text-sm">auf <a href="https://store.steampowered.com/app/346900" target="_blank" rel="noopener noreferrer" >Adventure Capitalist</a> angelehnt</span>
+    </header>
+
+    <GameEndCountdown/>
+
+    <main class="flex-1">
+        @Body
+    </main>
+
+    <footer class="border-t border-cartel-espresso bg-cartel-ink px-4 py-4 text-center text-xs text-cartel-cream/60">
+        Jeder der Casino spielt ist ein Opfer
+    </footer>
+</div>
+
+<div id="blazor-error-ui" data-nosnippet
+     class="fixed bottom-0 left-0 z-[1000] hidden w-full bg-[lightyellow] py-2.5 pr-5 pl-5 text-black shadow-[0_-1px_2px_rgba(0,0,0,0.2)] [color-scheme:light]">
+    An unhandled error has occurred.
+    <a href="." class="underline">Reload</a>
+    <span class="absolute right-3 top-2 cursor-pointer">×</span>
+</div>

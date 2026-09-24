@@ -1,0 +1,256 @@
+@using Microsoft.EntityFrameworkCore
+@using System.Numerics
+@using ShakerBusiness.Data
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@inject IDbContextFactory<ShakerDbContext> DbFactory
+@inject GameEngineService Engine
+@inject PlayerSessionRegistry SessionRegistry
+@inject GlobalChatService Chat
+
+@if (_loading)
+{
+    <p class="p-6 text-center text-sm text-cartel-ink/60">Lädt…</p>
+}
+else if (_account is null)
+{
+    <p class="p-6 text-center text-sm text-cartel-ink/60">Spieler nicht gefunden.</p>
+}
+else
+{
+    var businessLookup = IsSelf
+        ? Engine.GetSnapshots().ToDictionary(s => s.Definition.Id, s => (s.Owned, s.HasManager))
+        : _businessDataByBusinessId;
+    <div class="flex flex-col gap-4 p-4 sm:p-6">
+        <div class="flex items-center gap-3">
+            @if (!string.IsNullOrEmpty(_account.ProfileImageUrl))
+            {
+                <img src="@_account.ProfileImageUrl" alt="" class="h-14 w-14 flex-shrink-0 rounded-full border-2 border-cartel-gold object-cover"/>
+            }
+            <div class="flex min-w-0 flex-col">
+                <span class="break-words text-lg font-bold text-cartel-espresso">@_account.DisplayName</span>
+                @{ var presence = SessionRegistry.GetPresence(_account.TwitchUserId); }
+                @if (presence == PresenceStatus.Offline)
+                {
+                    <span class="flex items-center gap-1 text-xs text-cartel-ink/50">
+                        <span class="h-1.5 w-1.5 rounded-full @presence.DotColorClass()"></span>
+                        @FormatLastSeen(_account.LastOnlineUtc)
+                    </span>
+                }
+                else
+                {
+                    <span class="flex items-center gap-1 text-xs font-semibold @presence.TextColorClass()">
+                        <span class="h-1.5 w-1.5 rounded-full @presence.DotColorClass()"></span>
+                        @presence.Label()
+                    </span>
+                }
+                @if (GameData.IsRetired(DisplayPrestigeCount))
+                {
+                    <span class="text-xs font-bold text-cartel-agave">Durchgespielt - in Rente</span>
+                }
+                else
+                {
+                    <span class="text-xs text-cartel-ink/50">Durchgespielt: @(DisplayUnlockProgressPercent.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture))%</span>
+                }
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2">
+            <div class="flex flex-col items-center rounded-[7px] bg-black/[0.06] px-1.5 py-2.5">
+                @{
+                    var (cashValue, cashSuffix) = BigNumberFormatter.Split(DisplayCash);
+                }
+                <span class="text-sm font-extrabold text-cartel-agave">$@cashValue</span>
+                @if (cashSuffix.Length > 0)
+                {
+                    <span class="text-center text-[0.55rem] font-bold uppercase tracking-wide text-cartel-agave/80">@cashSuffix</span>
+                }
+                <span class="mt-0.5 text-center text-[0.65rem] text-cartel-ink/60">Aktuelles Geld</span>
+            </div>
+            <div class="flex flex-col items-center rounded-[7px] bg-black/[0.06] px-1.5 py-2.5">
+                @{
+                    var (lifetimeValue, lifetimeSuffix) = BigNumberFormatter.Split(DisplayLifetime);
+                }
+                <span class="text-sm font-extrabold text-cartel-agave">$@lifetimeValue</span>
+                @if (lifetimeSuffix.Length > 0)
+                {
+                    <span class="text-center text-[0.55rem] font-bold uppercase tracking-wide text-cartel-agave/80">@lifetimeSuffix</span>
+                }
+                <span class="mt-0.5 text-center text-[0.65rem] text-cartel-ink/60">Lifetime-Umsatz</span>
+            </div>
+            <div class="flex flex-col items-center rounded-[7px] bg-black/[0.06] px-1.5 py-2.5">
+                @{
+                    var (angelValue, angelSuffix) = BigNumberFormatter.Split(DisplayAngels);
+                }
+                <span class="text-sm font-extrabold text-cartel-agave">@angelValue</span>
+                @if (angelSuffix.Length > 0)
+                {
+                    <span class="text-center text-[0.55rem] font-bold uppercase tracking-wide text-cartel-agave/80">@angelSuffix</span>
+                }
+                <span class="mt-0.5 text-center text-[0.65rem] text-cartel-ink/60">Anteile von Oli</span>
+            </div>
+            <div class="flex flex-col items-center rounded-[7px] bg-black/[0.06] px-1.5 py-2.5">
+                <span class="text-sm font-extrabold text-cartel-agave">@BigNumberFormatter.FormatPercent(DisplayEffectivenessRate)</span>
+                <span class="mt-0.5 text-center text-[0.65rem] text-cartel-ink/60">Investor-Effektivität</span>
+            </div>
+            <div class="flex flex-col items-center rounded-[7px] bg-black/[0.06] px-1.5 py-2.5">
+                <span class="text-sm font-extrabold text-cartel-agave">@DisplayPrestigeCount</span>
+                <span class="mt-0.5 text-center text-[0.65rem] text-cartel-ink/60">Prestige</span>
+            </div>
+            <div class="flex flex-col items-center rounded-[7px] bg-black/[0.06] px-1.5 py-2.5">
+                <span class="text-sm font-extrabold text-cartel-agave">@DisplaySnakeHighScore</span>
+                <span class="mt-0.5 text-center text-[0.65rem] text-cartel-ink/60">ShakerSnake Highscore</span>
+            </div>
+            <div class="flex flex-col items-center rounded-[7px] bg-black/[0.06] px-1.5 py-2.5">
+                <span class="text-sm font-extrabold text-cartel-agave">@DisplayTimberHighScore</span>
+                <span class="mt-0.5 text-center text-[0.65rem] text-cartel-ink/60">ShakerTimber Highscore</span>
+            </div>
+            <div class="flex flex-col items-center rounded-[7px] bg-black/[0.06] px-1.5 py-2.5">
+                <span class="text-sm font-extrabold text-cartel-agave">@DisplayFishingLevel</span>
+                <span class="mt-0.5 text-center text-[0.65rem] text-cartel-ink/60">ShakerAngeln Level</span>
+            </div>
+        </div>
+
+        @if (Engine.CanModerateChat)
+        {
+            <button class="w-full rounded-[7px] border border-cartel-gold/50 bg-cartel-gold/10 px-3 py-2 text-sm font-bold text-cartel-espresso hover:bg-cartel-gold/20" @onclick="() => OnShowAdminUpgrades.InvokeAsync()">
+                Mod Ansicht: Gekaufte Upgrades
+            </button>
+
+            @if (!IsSelf)
+            {
+                <button class="w-full rounded-[7px] border border-cartel-crimson/50 bg-cartel-crimson/10 px-3 py-2 text-sm font-bold text-cartel-crimson hover:bg-cartel-crimson/20" @onclick="ToggleBanAsync">
+                    @(Chat.IsBanned(_account.TwitchUserId) ? "Chat-Sperre aufheben" : "Vom Chat sperren")
+                </button>
+            }
+        }
+
+        <div>
+            <span class="text-xs font-bold uppercase tracking-wide text-cartel-ink/50">Businesses</span>
+            <div class="mt-2 grid grid-cols-3 gap-2 sm:grid-cols-5">
+                @foreach (var business in GameData.Businesses)
+                {
+                    var (owned, hasManager) = businessLookup.GetValueOrDefault(business.Id);
+                    <div class="flex flex-col items-center gap-1 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] px-1 py-2">
+                        <div class="relative">
+                            <img src="@business.ImagePath" alt="" class="h-8 w-8 rounded-full border border-cartel-espresso object-cover"/>
+                            @if (hasManager)
+                            {
+                                <span title="Automatisiert" class="absolute -right-1 -top-1 flex h-[16px] w-[16px] items-center justify-center rounded-[7px] border border-cartel-espresso bg-cartel-agave text-[0.6rem] leading-none text-white">M</span>
+                            }
+                        </div>
+                        <span class="text-xs font-bold text-cartel-espresso">@owned</span>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string? TwitchUserId { get; set; }
+
+    [Parameter]
+    public EventCallback OnShowAdminUpgrades { get; set; }
+
+    private string? _loadedForUserId;
+    private bool _loading;
+    private PlayerAccount? _account;
+    private Dictionary<string, (int Owned, bool HasManager)> _businessDataByBusinessId = [];
+    private double _otherEffectivenessBonus;
+
+    private bool IsSelf => !string.IsNullOrEmpty(TwitchUserId) && TwitchUserId == Engine.CurrentTwitchUserId;
+    private BigInteger DisplayCash => IsSelf ? Engine.Cash : (_account?.Cash ?? 0);
+    private BigInteger DisplayLifetime => IsSelf ? Engine.LifetimeEarnings : (_account?.LifetimeEarnings ?? 0);
+    private BigInteger DisplayAngels => IsSelf ? Engine.AngelCount : (_account?.AngelCount ?? 0);
+    private int DisplaySnakeHighScore => IsSelf ? Engine.SnakeHighScore : (_account?.SnakeHighScore ?? 0);
+    private int DisplayTimberHighScore => IsSelf ? Engine.TimberHighScore : (_account?.TimberHighScore ?? 0);
+    private int DisplayFishingLevel => FishingData.LevelForXp(_account?.FishingXp ?? 0);
+    private int DisplayPrestigeCount => IsSelf ? Engine.PrestigeCount : (_account?.PrestigeCount ?? 0);
+    private double DisplayEffectivenessRate => Engine.AngelEffectivenessBaseRate
+        + (IsSelf ? Engine.AngelEffectivenessBonus : _otherEffectivenessBonus);
+    private double DisplayUnlockProgressPercent => IsSelf
+        ? Engine.UnlockProgressPercent
+        : GameData.UnlockProgressPercent(_businessDataByBusinessId.ToDictionary(kv => kv.Key, kv => kv.Value.Owned));
+
+    private Task ToggleBanAsync()
+    {
+        if (_account is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return Chat.SetBannedAsync(_account.TwitchUserId, !Chat.IsBanned(_account.TwitchUserId), Engine.IsModerator, Engine.IsDev);
+    }
+
+    private static string FormatLastSeen(DateTime lastOnlineUtc)
+    {
+        var diff = DateTime.UtcNow - lastOnlineUtc;
+
+        if (diff.TotalMinutes < 1)
+        {
+            return "Zuletzt online: gerade eben";
+        }
+
+        if (diff.TotalMinutes < 60)
+        {
+            var mins = (int)diff.TotalMinutes;
+            return $"Zuletzt online: vor {mins} {(mins == 1 ? "Minute" : "Minuten")}";
+        }
+
+        if (diff.TotalHours < 24)
+        {
+            var hours = (int)diff.TotalHours;
+            return $"Zuletzt online: vor {hours} {(hours == 1 ? "Stunde" : "Stunden")}";
+        }
+
+        if (diff.TotalDays < 30)
+        {
+            var days = (int)diff.TotalDays;
+            return $"Zuletzt online: vor {days} {(days == 1 ? "Tag" : "Tagen")}";
+        }
+
+        return $"Zuletzt online: {lastOnlineUtc.ToLocalTime():dd.MM.yyyy}";
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (TwitchUserId == _loadedForUserId)
+        {
+            return;
+        }
+
+        _loadedForUserId = TwitchUserId;
+        _account = null;
+        _businessDataByBusinessId = [];
+        _otherEffectivenessBonus = 0;
+
+        if (string.IsNullOrEmpty(TwitchUserId))
+        {
+            return;
+        }
+
+        _loading = true;
+        StateHasChanged();
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _account = await db.PlayerAccounts.AsNoTracking().FirstOrDefaultAsync(p => p.TwitchUserId == TwitchUserId);
+        var businesses = await db.PlayerBusinesses.AsNoTracking().Where(b => b.TwitchUserId == TwitchUserId).ToListAsync();
+        _businessDataByBusinessId = businesses.ToDictionary(b => b.BusinessId, b => (b.Owned, b.HasManager));
+
+        if (!IsSelf)
+        {
+            var ownedAngelUpgradeIds = await db.PlayerAngelUpgrades.AsNoTracking().Where(u => u.TwitchUserId == TwitchUserId).Select(u => u.AngelUpgradeId).ToListAsync();
+            var angelBonus = ownedAngelUpgradeIds
+                .Select(AngelUpgradeData.GetById)
+                .Where(u => u is { Type: AngelUpgradeEffectType.AngelEffectivenessBonus })
+                .Sum(u => u!.Value);
+
+            var purchasedUpgradeIds = await db.PlayerUpgrades.AsNoTracking().Where(u => u.TwitchUserId == TwitchUserId).Select(u => u.UpgradeId).ToListAsync();
+            _otherEffectivenessBonus = angelBonus + GameData.CashAngelEffectivenessBonus(purchasedUpgradeIds);
+        }
+
+        _loading = false;
+    }
+}

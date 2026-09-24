@@ -1,0 +1,49 @@
+@using ShakerBusiness.Services
+@inject GameEngineService Engine
+
+<div class="mx-auto my-8 flex w-full max-w-[940px] flex-col items-center gap-4 rounded-[7px] bg-cartel-adobe px-4 py-8 text-center text-cartel-cream shadow-xl sm:px-8">
+    <div class="relative h-32 w-32 overflow-hidden rounded-full border-4 border-cartel-gold">
+        <img src="images/businesses/Oli.png" alt="" class="h-full w-full object-cover grayscale"/>
+        <div class="absolute inset-0 bg-[repeating-linear-gradient(90deg,transparent_0,transparent_14px,rgba(20,20,20,0.88)_14px,rgba(20,20,20,0.88)_20px)]"></div>
+    </div>
+    <h1 class="m-0 font-display text-3xl tracking-wide text-cartel-gold">Investor Oli sitzt im Knast!</h1>
+    <p class="m-0 max-w-[560px] text-cartel-cream/80">
+        Das Finanzamt hat zugeschlagen, amigo. Oli ist verhaftet, das Kartell aufgelöst und das Spiel ist vorbei.
+        Es wird nichts mehr verdient, nichts mehr gekauft und niemand mehr geprestiged.
+    </p>
+
+    @if (!Engine.IsAuthenticated || Engine.IsGuest)
+    {
+        <p class="m-0 max-w-[460px] text-sm text-cartel-cream/70">
+            @(Engine.IsGuest
+                ? "Gast-Spielstände liegen nur in deinem Browser und bekommen keine Urkunde."
+                : "Wer mit einem Twitch-Account gespielt hat, kann sich hier eine Urkunde von Oli holen.")
+        </p>
+        <a href="/login" class="inline-block rounded-[7px] bg-[#9146ff] px-7 py-3 text-base font-bold text-white no-underline transition hover:brightness-110">
+            Mit Twitch anmelden
+        </a>
+    }
+    else if (CertificateService.HasPlayed(Engine.LifetimeEarnings, Engine.AngelCount, Engine.PrestigeCount))
+    {
+        <div class="flex w-full flex-col items-center gap-3">
+            <span class="text-xs uppercase tracking-[0.2em] text-cartel-gold/70">Vorschau deiner Urkunde</span>
+            <img src="/urkunde/vorschau" alt="Vorschau deiner Urkunde" class="w-full rounded-[4px] border-2 border-cartel-gold shadow-2xl"/>
+            <a href="/urkunde" download data-enhance-nav="false" class="inline-block rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-7 py-3 text-base font-bold text-cartel-espresso no-underline transition hover:brightness-110">
+                Urkunde als PDF herunterladen
+            </a>
+        </div>
+    }
+    else
+    {
+        <p class="m-0 max-w-[460px] text-sm text-cartel-cream/70">
+            Du hast das Spiel nie wirklich gespielt, amigo. Dafür gibt es keine Urkunde von Oli.
+        </p>
+    }
+
+    @if (Engine.IsAuthenticated)
+    {
+        <div class="grid w-full max-w-[420px] grid-cols-1 gap-3 rounded-[7px] bg-black/20 px-4 py-3 text-left sm:grid-cols-2">
+            <AudioSliders ItemClass="flex flex-col gap-1.5 text-sm text-cartel-cream/70"/>
+        </div>
+    }
+</div>

@@ -1,0 +1,98 @@
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@inject GameEngineService Engine
+
+<div class="flex h-full flex-col gap-2 overflow-hidden bg-[#f2f2f2] p-3 text-[#202124]">
+    <div class="flex-shrink-0 rounded-[3px] bg-[#4a90e2] px-3 py-2 text-white">
+        <div class="text-[0.7rem] font-medium leading-tight">Klicke auf</div>
+        <div class="text-[1.3rem] font-extrabold leading-tight">den Spielsüchtigen</div>
+        <div class="mt-0.5 text-[0.65rem] leading-tight">Wähle alle Bilder aus. Klicke auf Bestätigen, wenn du fertig bist.</div>
+    </div>
+
+    <div class="flex min-h-0 flex-1 items-center justify-center [container-type:size]">
+        <div class="grid w-[min(100cqw,100cqh)] flex-shrink-0 grid-cols-3 gap-1 @(_shake ? "animate-slot-drop" : "")">
+            @for (var index = 0; index < _challenge.Tiles.Count; index++)
+            {
+                var tileIndex = index;
+                var tile = _challenge.Tiles[tileIndex];
+                var selected = _selected.Contains(tileIndex);
+                <button class="no-click-sound relative aspect-square overflow-hidden bg-white p-0" @onclick="() => Toggle(tileIndex)">
+                    <div class="@(selected ? "scale-[0.82]" : "scale-100") h-full w-full overflow-hidden transition-transform duration-100">
+                        <img src="@tile.ImagePath" alt="" draggable="false" class="h-full w-full object-cover" style="transform:rotate(@(tile.RotationDegrees)deg) scale(@tile.Scale.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture))"/>
+                    </div>
+                    @if (selected)
+                    {
+                        <span class="absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#4a90e2] text-xs font-extrabold text-white shadow">&#10003;</span>
+                    }
+                </button>
+            }
+        </div>
+    </div>
+
+    @if (_error is not null)
+    {
+        <div class="flex-shrink-0 rounded-[3px] bg-[#fdecea] px-3 py-1.5 text-xs font-semibold leading-tight text-[#b3261e]">@_error</div>
+    }
+
+    <div class="flex flex-shrink-0 items-center justify-between gap-2">
+        <button class="rounded-[3px] px-2 py-2 text-xs font-bold uppercase tracking-wide text-[#5f6368]" @onclick="OnCancel">Abbrechen</button>
+        <div class="flex items-center gap-2">
+            <button class="rounded-[3px] px-2 py-2 text-base text-[#5f6368]" title="Neue Bilder" @onclick="NewChallenge">&#8635;</button>
+            <button class="rounded-[3px] bg-[#4a90e2] px-5 py-2 text-xs font-bold uppercase tracking-wide text-white disabled:opacity-50" disabled="@(_selected.Count == 0)" @onclick="VerifyAsync">Bestätigen</button>
+        </div>
+    </div>
+    <p class="m-0 flex-shrink-0 text-center text-[0.6rem] leading-tight text-[#80868b]">Oli-Captcha &middot; Schutz vor Robotern und Spielsüchtigen</p>
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback OnSolved { get; set; }
+
+    [Parameter]
+    public EventCallback OnCancel { get; set; }
+
+    private static readonly string[] FailMessages =
+    [
+        "Falscher Spielsüchtiger, amigo. Schau dir die Bilder nochmal an.",
+        "Nicht ganz. Erkennst du dich selbst nicht wieder?",
+        "Das war es nicht. Oli hat dich genau gesehen.",
+    ];
+
+    private readonly HashSet<int> _selected = [];
+    private SlotCaptchaChallenge _challenge = new([]);
+    private string? _error;
+    private bool _shake;
+
+    private string PlayerImage => string.IsNullOrEmpty(Engine.ProfileImageUrl) ? "images/businesses/Oli.png" : Engine.ProfileImageUrl;
+
+    protected override void OnInitialized() => NewChallenge();
+
+    private void NewChallenge()
+    {
+        _challenge = SlotCaptcha.Create(PlayerImage, Random.Shared);
+        _selected.Clear();
+    }
+
+    private void Toggle(int index)
+    {
+        _error = null;
+        _shake = false;
+        if (!_selected.Remove(index))
+        {
+            _selected.Add(index);
+        }
+    }
+
+    private async Task VerifyAsync()
+    {
+        if (SlotCaptcha.IsSolved(_challenge, _selected))
+        {
+            await OnSolved.InvokeAsync();
+            return;
+        }
+
+        _error = FailMessages[Random.Shared.Next(FailMessages.Length)];
+        _shake = true;
+        NewChallenge();
+    }
+}

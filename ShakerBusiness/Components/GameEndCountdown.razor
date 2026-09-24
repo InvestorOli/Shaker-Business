@@ -1,0 +1,54 @@
+@using ShakerBusiness.Services
+@implements IDisposable
+@inject GameEndService GameEnd
+
+@if (GameEnd.IsEnabled)
+{
+    <div class="border-b-4 border-cartel-ink bg-[repeating-linear-gradient(-45deg,#1c1410_0,#1c1410_14px,#d9a441_14px,#d9a441_28px)] px-3 py-1.5">
+        <div class="mx-auto flex max-w-[900px] flex-wrap items-center justify-center gap-x-3 gap-y-0.5 rounded-[7px] bg-cartel-espresso px-4 py-1.5 text-center shadow-lg">
+            <img src="images/businesses/Oli.png" alt="" class="h-8 w-8 rounded-full border-2 border-cartel-gold object-cover"/>
+            @if (GameEnd.HasEnded)
+            {
+                <span class="text-sm font-bold text-cartel-gold-light">Investor Oli sitzt im Knast. Das Spiel ist vorbei.</span>
+            }
+            else
+            {
+                <span class="text-xs text-cartel-cream/80 sm:text-sm">Investor Oli wird verhaftet in</span>
+                <span class="font-mono text-base font-extrabold tracking-wide text-cartel-gold-light sm:text-lg">@FormatRemaining(GameEnd.Remaining)</span>
+                <span class="w-full text-[0.65rem] text-cartel-cream/50 sm:w-auto">Danach ist das Spiel vorbei (@GameEnd.EndsAtLocalText)</span>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private System.Threading.Timer? _timer;
+
+    protected override void OnInitialized()
+    {
+        GameEnd.Ended += HandleChanged;
+        GameEnd.Changed += HandleChanged;
+        _timer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    }
+
+    private void HandleChanged() => InvokeAsync(StateHasChanged);
+
+    private static string FormatRemaining(TimeSpan remaining)
+    {
+        var clock = $"{remaining.Hours:00}:{remaining.Minutes:00}:{remaining.Seconds:00}";
+        var days = (int)remaining.TotalDays;
+        return days switch
+        {
+            0 => clock,
+            1 => $"1 Tag {clock}",
+            _ => $"{days} Tage {clock}",
+        };
+    }
+
+    public void Dispose()
+    {
+        GameEnd.Ended -= HandleChanged;
+        GameEnd.Changed -= HandleChanged;
+        _timer?.Dispose();
+    }
+}

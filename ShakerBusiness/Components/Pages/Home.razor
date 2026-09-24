@@ -1,0 +1,878 @@
+@page "/"
+@using System.Globalization
+@using System.Text.Json
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@inject GameEngineService Engine
+@inject IJSRuntime JS
+@inject ILogger<Home> Logger
+@inject NavigationManager Navigation
+@inject PlayerSessionRegistry SessionRegistry
+@inject MaintenanceModeService MaintenanceMode
+@inject GameEndService GameEnd
+@implements IAsyncDisposable
+
+<PageTitle>Shaker Business</PageTitle>
+
+@if (!_initialized)
+{
+    <div class="flex min-h-[60vh] items-center justify-center text-lg text-cartel-cream/90">Lädt…</div>
+}
+else if (GameEnd.HasEnded)
+{
+    <GameOverPanel/>
+}
+else if (!Engine.IsAuthenticated)
+{
+    <div class="mx-auto my-16 flex max-w-[560px] flex-col items-center gap-4 rounded-[7px] bg-cartel-adobe px-8 py-10 text-center text-cartel-cream">
+        <h1 class="m-0 font-display text-3xl tracking-wide text-cartel-gold">Shaker Business</h1>
+        <p class="m-0 text-cartel-cream/70">Bau dein Shaker-Imperium auf. Kein Zufall, keine Wetten. Nur du, deine Businesses, Investor Oli und ein bisschen Geduld.</p>
+        <a href="/login" class="mt-2 inline-block rounded-[7px] bg-[#9146ff] px-7 py-3 text-base font-bold text-white no-underline transition hover:brightness-110">
+            Mit Twitch anmelden
+        </a>
+        <button class="text-sm text-cartel-cream/60 underline transition hover:text-cartel-cream" @onclick="StartGuestModeAsync">
+            Ohne Login als Gast spielen
+        </button>
+        <p class="m-0 max-w-[380px] text-xs text-cartel-cream/50">
+            Im Gast-Modus landet dein Spielstand nur in deinem Browser. Loggt man sich mit Twitch ein wird dein Gast Fortschritt entfernt!
+        </p>
+        <p class="m-0 max-w-[420px] text-xs text-cartel-cream/40">
+            Seite lädt nicht richtig, hängt oder zeigt einen Fehler? Manche Browser-Erweiterungen (Adblocker, Privacy-/Tracking-Blocker) blockieren die Verbindung, die diese Seite zum Server braucht. Probier es mit deaktivierten Erweiterungen oder einem Inkognito-Fenster. Hilft das nicht, lösch die gespeicherten Seitendaten für diese Seite über die Tastenkombi <strong>Strg+Umschalt+Entf</strong> (Cookies &amp; Websitedaten auswählen) und lade die Seite danach neu.
+        </p>
+    </div>
+}
+else if (Engine.IsSessionSuperseded)
+{
+    <div class="mx-auto my-16 flex max-w-[560px] flex-col items-center gap-4 rounded-[7px] bg-cartel-adobe px-8 py-10 text-center text-cartel-cream">
+        <h1 class="m-0 font-display text-3xl tracking-wide text-cartel-gold">Shaker Business</h1>
+        <p class="m-0 text-cartel-cream/70">Das Spiel läuft gerade in einem anderen Tab oder auf einem anderen Gerät, oder du wurdest von einem Admin aus deiner Sitzung geworfen.</p>
+        <button class="mt-2 inline-block rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-7 py-3 text-base font-bold text-cartel-espresso" @onclick="() => Navigation.NavigateTo(Navigation.Uri, forceLoad: true)">
+            In diesem Tab weiterspielen
+        </button>
+    </div>
+}
+else if (Engine.IsMaintenanceLocked)
+{
+    <div class="mx-auto my-16 flex max-w-[560px] flex-col items-center gap-4 rounded-[7px] bg-cartel-adobe px-8 py-10 text-center text-cartel-cream">
+        <h1 class="m-0 font-display text-3xl tracking-wide text-cartel-gold">Shaker Business</h1>
+        <p class="m-0 text-cartel-cream/70">Wartungsarbeiten, amigo! Wir schrauben gerade am Geschäft rum, in Kürze geht's weiter. Schau in ein paar Minuten nochmal vorbei.</p>
+    </div>
+}
+else
+{
+    <PrestigeStarGradients/>
+
+    @if (_showOfflinePopup)
+    {
+        <div class="fixed inset-0 z-[1000] flex items-center justify-center bg-black/55">
+            <div class="max-w-[420px] rounded-[7px] bg-cartel-cream px-10 py-8 text-center text-cartel-ink shadow-[0_10px_30px_rgba(0,0,0,0.4)]">
+                <h3 class="m-0 mb-2 text-cartel-ink">Willkommen zurück!</h3>
+                <p>Du warst @FormatOfflineDuration(_offlineDuration) offline.</p>
+                @if (_offlineQuip is not null)
+                {
+                    <div class="my-3 flex items-center gap-2.5 rounded-[7px] bg-black/[0.04] px-3 py-2.5 text-left">
+                        <img src="images/businesses/Oli.png" alt="" class="h-9 w-9 flex-shrink-0 rounded-full border-2 border-cartel-gold object-cover"/>
+                        <span class="text-sm italic text-cartel-ink/80">@_offlineQuip</span>
+                    </div>
+                }
+                @if (_offlineEarnings > 0)
+                {
+                    <p class="m-0">In dieser Zeit haben deine Shaker Manager weitergearbeitet:</p>
+                    <p class="my-3 animate-number-reveal text-3xl font-extrabold text-cartel-agave">+@BigNumberFormatter.FormatDollar(_offlineEarnings)</p>
+                }
+                <button class="rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-6 py-2.5 font-bold text-white" @onclick="() => _showOfflinePopup = false">Nice!</button>
+            </div>
+        </div>
+    }
+
+    @if (_milestoneToast is { } toast && (DateTime.UtcNow - toast.At) < MilestoneToastDuration)
+    {
+        <div @key="toast.At" class="pointer-events-none fixed left-1/2 top-4 z-[1000] -translate-x-1/2 animate-toast-pop">
+            <div class="animate-shimmer rounded-[7px] border border-cartel-gold bg-[linear-gradient(100deg,var(--color-cartel-espresso)_40%,var(--color-cartel-gold)_50%,var(--color-cartel-espresso)_60%)] bg-[length:250%_100%] px-5 py-2.5 text-center font-bold text-cartel-gold-light shadow-lg">
+                Meilenstein! @toast.BusinessName x<b>@toast.Threshold</b>
+            </div>
+        </div>
+    }
+
+    @if (!Engine.IsGuest)
+    {
+        <GlobalChatWidget @ref="_chatWidget" OnUnreadChanged="(bool v) => _hasUnreadChat = v" OnHiddenChanged="() => _leaderboardRef?.RefreshAsync() ?? Task.CompletedTask"/>
+    }
+
+    <div class="flex min-h-[calc(100vh-4rem)] flex-col bg-[linear-gradient(160deg,var(--color-cartel-adobe)_0%,var(--color-cartel-espresso)_60%,var(--color-cartel-ink)_100%)] md:flex-row">
+        <aside class="flex w-full flex-row flex-wrap gap-2 bg-cartel-espresso p-4 md:sticky md:top-0 md:w-[220px] md:max-h-screen md:flex-shrink-0 md:flex-col md:overflow-y-auto">
+            <div class="mb-3 flex w-full flex-col items-center gap-1.5 rounded-[7px] bg-black/20 p-4 md:w-auto">
+                @if (!string.IsNullOrEmpty(Engine.ProfileImageUrl))
+                {
+                    <img src="@Engine.ProfileImageUrl" alt="" class="h-14 w-14 rounded-full border-[3px] border-cartel-gold @(Engine.IsGuest ? "" : "cursor-pointer")" @onclick="() => { if (!Engine.IsGuest && Engine.CurrentTwitchUserId is not null) { _chatWidget?.OpenContact(Engine.CurrentTwitchUserId); } }"/>
+                }
+                <span class="break-words text-center text-sm font-bold text-cartel-gold">@Engine.DisplayName</span>
+                @if (Engine.IsGuest)
+                {
+                    <span class="rounded-[7px] border border-cartel-cream/30 bg-white/10 px-1.5 py-0.5 text-[0.62rem] font-bold uppercase tracking-wide text-cartel-cream/70">Lokal gespeichert</span>
+                    <a href="/login" class="text-xs font-semibold text-[#9146ff] underline" title="Achtung: dein Gast-Fortschritt bleibt nur hier im Browser und wird nicht auf dein Twitch-Konto übertragen">Mit Twitch anmelden</a>
+                }
+                else
+                {
+                    <a href="/logout" class="text-xs text-cartel-cream/70 underline">Logout</a>
+                }
+            </div>
+
+            @foreach (var tab in VisibleTabs)
+            {
+                var tabDisabled = IsTabDisabled(tab);
+                <button class="relative @NavTabClass(ActiveTab == tab, tabDisabled)" disabled="@tabDisabled" title="@(tabDisabled ? "Erst ab Prestige 1 offen" : null)" @onclick="() => SwitchTab(tab)">
+                    @TabLabel(tab)
+                    @if (ShowAttentionDot(tab))
+                    {
+                        <span class="absolute -right-1 -top-1 flex h-2.5 w-2.5">
+                            <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-cartel-rust opacity-75"></span>
+                            <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-cartel-rust"></span>
+                        </span>
+                    }
+                </button>
+            }
+
+            @if (!Engine.IsGuest)
+            {
+                <button class="relative @NavTabClass(_chatWidget?.IsOpen ?? false)" @onclick="() => _chatWidget?.Toggle()">
+                    Shakerphone
+                    @if (_hasUnreadChat)
+                    {
+                        <span class="absolute -right-1 -top-1 flex h-2.5 w-2.5">
+                            <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-cartel-rust opacity-75"></span>
+                            <span class="relative inline-flex h-2.5 w-2.5 rounded-full bg-cartel-rust"></span>
+                        </span>
+                    }
+                </button>
+            }
+
+            @if (Engine.IsDev)
+            {
+                <a href="/admintool" class="flex-1 rounded-[7px] border border-cartel-crimson/60 bg-transparent px-3 py-2 text-center text-sm font-semibold text-cartel-crimson no-underline transition-colors hover:bg-cartel-crimson/20 md:flex-none md:px-4 md:py-2.5 md:text-left md:text-base">Admin Tool</a>
+            }
+
+            <AudioSliders/>
+        </aside>
+
+        <main class="flex-1 min-w-0 px-2 pb-6 pt-3 sm:px-3 sm:pb-8 sm:pt-4 lg:px-6 lg:pb-12 lg:pt-5">
+            @if (_showRetirementPopup)
+            {
+                <RetirementPopup OnClose="() => _showRetirementPopup = false"/>
+            }
+
+            <div class="mb-5 flex flex-wrap items-center justify-between gap-2.5 rounded-[7px] bg-black/25 px-3.5 py-3 sm:gap-4 sm:px-4 sm:py-3.5 lg:px-6 lg:py-4">
+                <div class="flex items-baseline gap-2.5">
+                    <span id="cash-display-target" @key="Engine.Cash" class="animate-cash-pop text-[1.4rem] font-extrabold text-white sm:text-[1.7rem] lg:text-[2.2rem]">$@Engine.CashSplit.Value</span>
+                    <span class="font-bold tracking-wide text-cartel-gold">@Engine.CashSplit.Suffix</span>
+                </div>
+
+                @if (!Engine.IsRetired)
+                {
+                    <button class="@MultBtnClass(true)" title="Klicken zum Wechseln" @onclick="CycleBuyMode">
+                        @BuyModeLabel(Engine.BuyMode)
+                    </button>
+                }
+            </div>
+
+            @if (Engine.IsRevenueBoostActive)
+            {
+                <div class="mb-5 flex items-center gap-2.5 rounded-[7px] bg-black/25 px-3.5 py-2.5">
+                    <img src="images/businesses/Oli.png" alt="" class="h-9 w-9 flex-shrink-0 rounded-full border-2 border-cartel-crimson object-cover"/>
+                    <div class="flex flex-col gap-0.5 text-sm">
+                        <span class="font-bold text-cartel-crimson">x@(Engine.RevenueBoostMultiplier.ToString("0.##")) Umsatz-Boost aktiv, noch @FormatCountdown((Engine.RevenueBoostExpiresUtc - DateTime.UtcNow)?.TotalSeconds ?? 0)</span>
+                        <span class="italic text-cartel-cream/80">Amigos, heute kam ALG1 Gehalt an, daher lauf ich mal großzügig rum. Schnappt euch das, bevor ich's mir anders überlege, capisce?</span>
+                    </div>
+                </div>
+            }
+
+            <div @key="ActiveTab" class="animate-bubble-in">
+                @if (ActiveTab == Tab.Home)
+                {
+                    <div class="mx-auto flex max-w-[2000px] flex-col items-start gap-6 xl:flex-row">
+                        @if (Engine.IsRetired)
+                        {
+                            <RetirementCard/>
+                        }
+                        else
+                        {
+                            <div id="business-grid" class="grid w-full flex-1 min-w-0 grid-cols-1 gap-2.5 md:grid-cols-2 md:[grid-auto-flow:column] md:[grid-template-rows:repeat(5,auto)]">
+                                @foreach (var snapshot in Engine.GetSnapshots())
+                                {
+                                    var ready = snapshot.ProgressFraction >= 1;
+                                    var idle = snapshot.ProgressFraction <= 0;
+                                    var canClickIcon = snapshot.Unlocked && snapshot.Owned > 0 && !snapshot.HasManager && (idle || ready);
+                                    var dimmed = !snapshot.Unlocked || (snapshot.Owned == 0 && !snapshot.CanAffordBuy);
+                                    var readyToUnlock = snapshot.Owned == 0 && snapshot.CanAffordBuy;
+                                    var flashing = _lastClickGain.TryGetValue(snapshot.Definition.Id, out var gain) && (DateTime.UtcNow - gain.At) < FlashDuration;
+                                    var shimmerReady = snapshot.Unlocked && snapshot.Owned > 0 && snapshot.ProgressFraction is >= 0.85 and < 1;
+                                    var (cycleAnimStyle, cycleAnimKey, cycleAnimShimmer) = GetCycleAnimation(snapshot);
+
+                                    <div class="@BusinessRowClass(dimmed, readyToUnlock, flashing)">
+                                        <div id="business-icon-@snapshot.Definition.Id" class="relative flex-shrink-0 select-none @(canClickIcon ? "cursor-pointer" : "")" @onclick="() => OnIconClick(snapshot)">
+                                            <img src="@snapshot.Definition.ImagePath" alt="@snapshot.Definition.Name" draggable="false" class="h-14 w-14 select-none rounded-full border-[3px] border-cartel-espresso bg-[#cbb99f] object-cover transition-transform duration-75 md:h-16 md:w-16 @(canClickIcon ? "animate-icon-breathe active:animate-none active:scale-[0.86]" : "")"/>
+                                            <span @key="snapshot.Owned" class="absolute -bottom-1 left-1/2 -translate-x-1/2 animate-count-pop rounded-[7px] bg-cartel-espresso px-1.5 py-0.5 text-xs font-bold text-cartel-gold">@snapshot.Owned</span>
+                                            @if (snapshot.HasManager)
+                                            {
+                                                <span title="Automatisiert" class="absolute -right-1 -top-1 flex h-[18px] w-[18px] items-center justify-center rounded-[7px] border border-cartel-espresso bg-cartel-agave text-xs leading-none text-white">M</span>
+                                            }
+                                            @if (flashing)
+                                            {
+                                                <span class="pointer-events-none absolute left-1/2 top-[-6px] -translate-x-1/2 animate-float-up whitespace-nowrap text-sm font-extrabold text-cartel-agave [text-shadow:0_1px_2px_rgba(255,255,255,0.6)]">+@BigNumberFormatter.FormatDollar(gain.Amount)</span>
+                                                <span class="pointer-events-none absolute left-1/2 top-1/2 h-1.5 w-1.5 animate-spark rounded-full bg-cartel-gold" style="--spark-x:16px;--spark-y:-18px"></span>
+                                                <span class="pointer-events-none absolute left-1/2 top-1/2 h-1.5 w-1.5 animate-spark rounded-full bg-cartel-gold" style="--spark-x:-16px;--spark-y:-14px"></span>
+                                                <span class="pointer-events-none absolute left-1/2 top-1/2 h-1.5 w-1.5 animate-spark rounded-full bg-cartel-gold" style="--spark-x:2px;--spark-y:-22px"></span>
+                                                <span class="pointer-events-none absolute left-1/2 top-1/2 h-1.5 w-1.5 animate-spark rounded-full bg-cartel-gold" style="--spark-x:-2px;--spark-y:20px"></span>
+                                            }
+                                        </div>
+
+                                        <div class="flex min-w-0 flex-1 flex-col gap-1.5">
+                                            <div title="@snapshot.Definition.Name" class="mb-1 max-w-full overflow-hidden text-ellipsis whitespace-nowrap px-1 text-[0.95rem] font-semibold leading-tight text-cartel-espresso">
+                                                @snapshot.Definition.Name
+                                            </div>
+
+                                            <div class="relative h-12 cursor-pointer overflow-hidden rounded-[7px] bg-[#cbb99f] lg:h-14">
+                                                <div @key="cycleAnimKey" class="absolute inset-0 @ProgressFillClass(shimmerReady || cycleAnimShimmer, Engine.IsRevenueBoostActive)" style="@cycleAnimStyle"></div>
+                                                <span class="relative z-[1] flex h-full w-full flex-col items-center justify-center overflow-hidden text-ellipsis whitespace-nowrap px-2 text-center font-bold text-white [text-shadow:0_1px_2px_rgba(0,0,0,0.5)]">
+                                                    @if (!snapshot.Unlocked)
+                                                    {
+                                                        @("Noch nicht freigeschaltet")
+                                                    }
+                                                    else if (snapshot.Owned == 0)
+                                                    {
+                                                        @("Preis: " + BigNumberFormatter.FormatDollar(snapshot.BuyCost))
+                                                    }
+                                                    else
+                                                    {
+                                                        @BigNumberFormatter.FormatPlain(snapshot.EffectiveRevenue)
+                                                        <span class="text-[0.65rem] font-semibold opacity-80">@BigNumberFormatter.FormatDollar(PerSecondRevenue(snapshot))/s</span>
+                                                    }
+                                                </span>
+                                            </div>
+
+                                            <div class="mt-1 flex items-stretch gap-2">
+                                                <button class="@BuyBtnClass(readyToUnlock, !snapshot.CanAffordBuy, Engine.IsRevenueBoostActive)" disabled="@(!snapshot.CanAffordBuy)" @onclick="() => BuyAsync(snapshot.Definition.Id)">
+                                                    @if (snapshot.CanAffordBuy)
+                                                    {
+                                                        <span class="pointer-events-none absolute inset-0 animate-shimmer overflow-hidden rounded-[7px] bg-[length:250%_100%] [background-image:linear-gradient(100deg,transparent_40%,rgba(255,255,255,0.35)_50%,transparent_60%)]"></span>
+                                                    }
+                                                    <span class="relative text-[0.9rem] font-extrabold">Buy</span>
+                                                    <span class="relative text-xs opacity-90">x@(snapshot.BuyQuantity)</span>
+                                                    <span class="relative text-xs font-bold">@BigNumberFormatter.FormatDollar(snapshot.BuyCost)</span>
+                                                </button>
+
+                                                @if (snapshot.Unlocked && snapshot.Owned > 0)
+                                                {
+                                                    <span class="flex min-w-[60px] flex-shrink-0 items-center justify-center rounded-[7px] bg-cartel-ink px-2.5 py-2 text-xs font-bold tabular-nums text-cartel-cream lg:min-w-[72px] lg:text-sm">
+                                                        @(ready ? "00:00" : FormatCountdown(snapshot.EffectiveCycleSeconds * (1 - snapshot.ProgressFraction)))
+                                                    </span>
+                                                }
+                                            </div>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+
+                        <aside id="leaderboard-aside" class="w-full flex-shrink-0 self-start rounded-[7px] bg-black/20 p-4 xl:w-[440px] xl:sticky xl:top-0 xl:overflow-y-auto">
+                            <Leaderboard @ref="_leaderboardRef" OnPlayerSelected="(string id) => _chatWidget?.OpenContact(id)"/>
+                        </aside>
+                    </div>
+                }
+                else if (ActiveTab == Tab.Upgrades)
+                {
+                    <UpgradesPanel/>
+                }
+                else if (ActiveTab == Tab.Managers)
+                {
+                    <ManagersPanel/>
+                }
+                else if (ActiveTab == Tab.Unlocks)
+                {
+                    <UnlocksPanel OnRetired="HandleRetired"/>
+                }
+                else if (ActiveTab == Tab.Prestige)
+                {
+                    <PrestigePanel/>
+                }
+                else
+                {
+                    <InvestorsPanel/>
+                }
+            </div>
+        </main>
+    </div>
+}
+
+@code {
+    private enum Tab { Home, Upgrades, Managers, Unlocks, Investors, Prestige }
+
+    private static readonly Tab[] TabOrder = [Tab.Home, Tab.Upgrades, Tab.Managers, Tab.Unlocks, Tab.Investors, Tab.Prestige];
+    private static readonly Tab[] RetiredTabOrder = [Tab.Home];
+    private static readonly BuyMultiplier[] BuyModeOrder = [BuyMultiplier.X1, BuyMultiplier.X10, BuyMultiplier.X100, BuyMultiplier.Next, BuyMultiplier.Max];
+
+    private async Task CycleBuyMode()
+    {
+        var currentIndex = Array.IndexOf(BuyModeOrder, Engine.BuyMode);
+        var nextIndex = (currentIndex + 1) % BuyModeOrder.Length;
+        var nextMode = BuyModeOrder[nextIndex];
+        Engine.SetBuyMode(nextMode);
+        await JS.InvokeVoidAsync("shakerEffects.storeBuyMode", nextMode.ToString());
+    }
+
+    private static readonly TimeSpan FlashDuration = TimeSpan.FromMilliseconds(500);
+    private static readonly TimeSpan MilestoneToastDuration = TimeSpan.FromSeconds(3);
+
+    private readonly Dictionary<string, (DateTime? Anchor, bool Continuous, double CycleSeconds, string Style, long Key, bool Shimmer)> _cycleAnimCache = [];
+
+    private void SwitchTab(Tab tab)
+    {
+        if (IsTabDisabled(tab))
+        {
+            return;
+        }
+
+        if (_activeTab != tab)
+        {
+            _activeTab = tab;
+            _cycleAnimCache.Clear();
+            if (tab == Tab.Home)
+            {
+                _sidebarHeightSynced = false;
+            }
+        }
+    }
+
+    private const double HyperSpeedThresholdSeconds = 0.1;
+
+    private (string Style, long Key, bool Shimmer) GetCycleAnimation(BusinessSnapshot snapshot)
+    {
+        var id = snapshot.Definition.Id;
+        var anchor = snapshot.CycleAnchorUtc;
+        var continuous = snapshot.HasManager;
+
+        if (_cycleAnimCache.TryGetValue(id, out var cached) && cached.Anchor == anchor && cached.Continuous == continuous && cached.CycleSeconds == snapshot.EffectiveCycleSeconds)
+        {
+            return (cached.Style, cached.Key, cached.Shimmer);
+        }
+
+        string style;
+        long key;
+        bool shimmer;
+
+        if (anchor is null || snapshot.EffectiveCycleSeconds <= 0)
+        {
+            var full = snapshot.EffectiveCycleSeconds <= 0 && snapshot.Unlocked && snapshot.Owned > 0;
+            style = full ? "width:100%" : "width:0%";
+            shimmer = full;
+            key = 0;
+        }
+        else if (snapshot.EffectiveCycleSeconds < HyperSpeedThresholdSeconds)
+        {
+            style = "width:100%";
+            shimmer = true;
+            key = -1;
+        }
+        else
+        {
+            var elapsedSoFar = (DateTime.UtcNow - anchor.Value).TotalSeconds;
+            elapsedSoFar = continuous
+                ? elapsedSoFar % snapshot.EffectiveCycleSeconds
+                : Math.Clamp(elapsedSoFar, 0, snapshot.EffectiveCycleSeconds);
+
+            var duration = snapshot.EffectiveCycleSeconds.ToString("0.###", CultureInfo.InvariantCulture);
+            var delay = (-elapsedSoFar).ToString("0.###", CultureInfo.InvariantCulture);
+            var iteration = continuous ? "infinite" : "1";
+            var fillMode = continuous ? "none" : "forwards";
+            style = $"animation: fast-cycle-fill {duration}s linear {delay}s {iteration} {fillMode};";
+            shimmer = false;
+            key = anchor.Value.Ticks;
+        }
+
+        _cycleAnimCache[id] = (anchor, continuous, snapshot.EffectiveCycleSeconds, style, key, shimmer);
+        return (style, key, shimmer);
+    }
+
+    private bool _initialized;
+    private GlobalChatWidget? _chatWidget;
+    private bool _hasUnreadChat;
+    private Leaderboard? _leaderboardRef;
+    private Tab _activeTab = Tab.Home;
+    private bool _showRetirementPopup;
+
+    private Tab ActiveTab => VisibleTabs.Contains(_activeTab) && !IsTabDisabled(_activeTab) ? _activeTab : Tab.Home;
+
+    private IReadOnlyList<Tab> VisibleTabs => Engine.IsRetired ? RetiredTabOrder : TabOrder;
+
+    private bool IsTabDisabled(Tab tab) => tab == Tab.Prestige && Engine.PrestigeCount <= 0;
+
+    private void HandleRetired()
+    {
+        _activeTab = Tab.Home;
+        _cycleAnimCache.Clear();
+        _sidebarHeightSynced = false;
+        _showRetirementPopup = true;
+    }
+    private PeriodicTimer? _timer;
+    private Task? _tickLoop;
+    private readonly Dictionary<string, (System.Numerics.BigInteger Amount, DateTime At)> _lastClickGain = [];
+    private readonly Dictionary<string, int> _lastOwned = [];
+    private (string BusinessName, int Threshold, DateTime At)? _milestoneToast;
+    private bool _showOfflinePopup;
+    private System.Numerics.BigInteger _offlineEarnings;
+    private TimeSpan _offlineDuration;
+    private string? _offlineQuip;
+
+    protected override async Task OnInitializedAsync()
+    {
+        Engine.SessionSuperseded += HandleSessionSuperseded;
+        MaintenanceMode.OnChanged += HandleMaintenanceModeChanged;
+        GameEnd.Ended += HandleGameEnded;
+        GameEnd.Changed += HandleGameEndChanged;
+        await Engine.InitializeAsync();
+        _initialized = true;
+        StartGameLoopIfAuthenticated();
+    }
+
+    private void HandleSessionSuperseded()
+    {
+        _timer?.Dispose();
+        _timer = null;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private const int GameEndFlushJitterMs = 8000;
+
+    private void HandleGameEnded()
+    {
+        InvokeAsync(async () =>
+        {
+            _timer?.Dispose();
+            _timer = null;
+            StateHasChanged();
+            if (!Engine.IsAuthenticated || Engine.IsSessionSuperseded)
+            {
+                return;
+            }
+
+            try
+            {
+                await Task.Delay(Random.Shared.Next(GameEndFlushJitterMs));
+                await Engine.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Flush at game end failed");
+            }
+        });
+    }
+
+    private void HandleMaintenanceModeChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void HandleGameEndChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void StartGameLoopIfAuthenticated()
+    {
+        if (!Engine.IsAuthenticated || _tickLoop is not null)
+        {
+            return;
+        }
+
+        if (Engine.LastOfflineDuration > TimeSpan.Zero)
+        {
+            _offlineEarnings = Engine.LastOfflineEarnings;
+            _offlineDuration = Engine.LastOfflineDuration;
+            _offlineQuip = Engine.LastOfflineQuip;
+            _showOfflinePopup = true;
+        }
+
+        foreach (var definition in GameData.Businesses)
+        {
+            _lastOwned[definition.Id] = Engine.GetOwned(definition.Id);
+        }
+
+        _timer = new PeriodicTimer(TimeSpan.FromMilliseconds(100));
+        _tickLoop = RunTickLoopAsync();
+    }
+
+    private async Task StartGuestModeAsync()
+    {
+        await Engine.InitializeGuestAsync(null);
+        StartGameLoopIfAuthenticated();
+        StateHasChanged();
+    }
+
+    private bool _volumeSynced;
+    private bool _guestResumeChecked;
+    private bool _sidebarHeightSynced;
+    private DotNetObjectReference<Home>? _flushOnHideRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_sidebarHeightSynced && _initialized && Engine.IsAuthenticated)
+        {
+            _sidebarHeightSynced = true;
+            try
+            {
+                await JS.InvokeVoidAsync("shakerEffects.syncSidebarHeight", "business-grid", "leaderboard-aside");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        if (!_guestResumeChecked && !Engine.IsAuthenticated)
+        {
+            _guestResumeChecked = true;
+            string? existingGuestState = null;
+            try
+            {
+                existingGuestState = await JS.InvokeAsync<string?>("shakerEffects.readGuestState");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            if (!string.IsNullOrEmpty(existingGuestState))
+            {
+                await Engine.InitializeGuestAsync(existingGuestState);
+                StartGameLoopIfAuthenticated();
+                StateHasChanged();
+            }
+        }
+
+        if (!_volumeSynced && Engine.IsAuthenticated)
+        {
+            _volumeSynced = true;
+
+            if (!Engine.IsGuest)
+            {
+                await JS.InvokeVoidAsync("shakerEffects.clearGuestState");
+            }
+
+            await JS.InvokeVoidAsync("shakerAudio.applyStoredVolume", "volume-slider");
+            await JS.InvokeVoidAsync("shakerAudio.armAutoplayOnFirstClick");
+            await RestoreManualClickTokensAsync();
+
+            var storedBuyMode = await JS.InvokeAsync<string?>("shakerEffects.readBuyMode");
+            if (!string.IsNullOrEmpty(storedBuyMode) && Enum.TryParse<BuyMultiplier>(storedBuyMode, out var buyMode))
+            {
+                Engine.SetBuyMode(buyMode);
+            }
+
+            _flushOnHideRef = DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("shakerEffects.registerFlushOnHide", _flushOnHideRef);
+                await JS.InvokeVoidAsync("shakerEffects.registerActivityTracking", _flushOnHideRef, 20000);
+            }
+            catch (JSException)
+            {
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            StateHasChanged();
+        }
+    }
+
+    [JSInvokable]
+    public async Task FlushNow()
+    {
+        if (!Engine.IsAuthenticated)
+        {
+            return;
+        }
+
+        try
+        {
+            await Engine.FlushAsync();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Flush requested by the browser failed");
+        }
+    }
+
+    [JSInvokable]
+    public Task OnUserActive()
+    {
+        if (!Engine.IsGuest)
+        {
+            SessionRegistry.TouchActivity(Engine.CurrentTwitchUserId);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private static string FormatCountdown(double remainingSeconds)
+    {
+        var span = TimeSpan.FromSeconds(Math.Max(0, remainingSeconds));
+        if (span.TotalDays >= 1)
+        {
+            return $"{(int)span.TotalDays}T {span:hh\\:mm\\:ss}";
+        }
+
+        return span.TotalHours >= 1
+            ? span.ToString(@"hh\:mm\:ss")
+            : span.ToString(@"mm\:ss");
+    }
+
+    private static string FormatOfflineDuration(TimeSpan span)
+    {
+        var days = span.Days;
+        var hours = span.Hours;
+        var minutes = span.Minutes;
+
+        if (days > 0)
+        {
+            var dayPart = $"{days} {(days == 1 ? "Tag" : "Tage")}";
+            return hours > 0 ? $"{dayPart} {hours} {(hours == 1 ? "Stunde" : "Stunden")}" : dayPart;
+        }
+
+        if (hours > 0)
+        {
+            var hourPart = $"{hours} {(hours == 1 ? "Stunde" : "Stunden")}";
+            return minutes > 0 ? $"{hourPart} {minutes} {(minutes == 1 ? "Minute" : "Minuten")}" : hourPart;
+        }
+
+        var totalMinutes = Math.Max(1, minutes);
+        return $"{totalMinutes} {(totalMinutes == 1 ? "Minute" : "Minuten")}";
+    }
+
+    private async Task RunTickLoopAsync()
+    {
+        try
+        {
+            while (_timer is not null && await _timer.WaitForNextTickAsync())
+            {
+                try
+                {
+                    await Engine.TickAsync();
+                    CheckMilestones();
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (Exception ex) when (ex is not ObjectDisposedException)
+                {
+                    Logger.LogWarning(ex, "Tick loop iteration failed - will retry next tick");
+                }
+            }
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private void CheckMilestones()
+    {
+        foreach (var definition in GameData.Businesses)
+        {
+            var id = definition.Id;
+            var owned = Engine.GetOwned(id);
+            var previous = _lastOwned.GetValueOrDefault(id);
+            if (owned > previous)
+            {
+                var crossed = GameData.AllUnlockThresholds(id).Where(t => previous < t && t <= owned).DefaultIfEmpty(0).Max();
+                if (crossed > 0)
+                {
+                    _milestoneToast = (definition.Name, crossed, DateTime.UtcNow);
+                }
+            }
+
+            _lastOwned[id] = owned;
+        }
+    }
+
+    private async Task BuyAsync(string businessId)
+    {
+        await Engine.BuyBusinessAsync(businessId);
+        try
+        {
+            await JS.InvokeVoidAsync("shakerAudio.playBuy");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task OnIconClick(BusinessSnapshot snapshot)
+    {
+        var isClickable = snapshot.Unlocked && snapshot.Owned > 0 && !snapshot.HasManager;
+        if (!isClickable)
+        {
+            return;
+        }
+
+        var wasEligible = snapshot.ProgressFraction <= 0 || snapshot.ProgressFraction >= 1;
+        var gain = Engine.ManualClick(snapshot.Definition.Id);
+
+        if (wasEligible)
+        {
+            _lastClickGain[snapshot.Definition.Id] = (gain ?? snapshot.EffectiveRevenue.ToBigInteger(), DateTime.UtcNow);
+        }
+
+        if (Engine.LastManualClickToken is { } issued)
+        {
+            await JS.InvokeVoidAsync("shakerEffects.storeManualClickToken", issued.BusinessId, issued.Token);
+        }
+    }
+
+    private async Task RestoreManualClickTokensAsync()
+    {
+        var json = await JS.InvokeAsync<string>("shakerEffects.readAndClearManualClickTokens");
+        Dictionary<string, string>? tokens;
+        try
+        {
+            tokens = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+
+        if (tokens is null)
+        {
+            return;
+        }
+
+        foreach (var (businessId, token) in tokens)
+        {
+            Engine.RestoreManualChargeFromToken(businessId, token);
+        }
+    }
+
+    private bool ShowAttentionDot(Tab tab) => tab switch
+    {
+        Tab.Upgrades => Engine.HasAffordableUpgrade,
+        Tab.Managers => Engine.GetSnapshots().Any(s => s.Unlocked && s.Owned > 0 && !s.HasManager && s.CanAffordManager),
+        Tab.Investors => Engine.HasInvestorDealWorthOffering,
+        Tab.Prestige => Engine.HasPrestigeUpgradeToClaim,
+        _ => false,
+    };
+
+    private static string TabLabel(Tab tab) => tab switch
+    {
+        Tab.Home => "Home",
+        Tab.Upgrades => "Upgrades",
+        Tab.Managers => "Managers",
+        Tab.Unlocks => "Unlocks",
+        Tab.Prestige => "Olis Bunker",
+        _ => "Investor Oli",
+    };
+
+    private static string BuyModeLabel(BuyMultiplier mode) => mode switch
+    {
+        BuyMultiplier.X1 => "x1",
+        BuyMultiplier.X10 => "x10",
+        BuyMultiplier.X100 => "x100",
+        BuyMultiplier.Next => "Next",
+        _ => "Max",
+    };
+
+    private const string NavTabBase = "rounded-[7px] border-none px-3 py-2 text-center text-sm font-semibold transition-colors cursor-pointer flex-1 md:flex-none md:px-4 md:py-2.5 md:text-left md:text-base";
+    private static string NavTabClass(bool active, bool disabled = false) =>
+        disabled ? $"{NavTabBase} !cursor-not-allowed bg-transparent text-cartel-cream/30"
+        : active ? $"{NavTabBase} bg-cartel-gold text-cartel-espresso"
+        : $"{NavTabBase} bg-transparent text-cartel-cream/70 hover:bg-white/10";
+
+    private const string MultBtnBase = "rounded-[7px] border-none px-2.5 py-1.5 text-sm font-bold cursor-pointer transition-colors sm:px-3.5";
+    private static string MultBtnClass(bool active) => active
+        ? $"{MultBtnBase} bg-cartel-gold text-cartel-espresso"
+        : $"{MultBtnBase} bg-cartel-adobe/70 text-cartel-cream hover:bg-cartel-adobe";
+
+    private const string BusinessRowBase = "flex flex-wrap items-center gap-2.5 rounded-[7px] bg-cartel-cream px-3 py-2.5 shadow-[0_2px_4px_rgba(0,0,0,0.25)] transition-[opacity,filter,box-shadow] duration-200 md:flex-nowrap select-none";
+    private static string BusinessRowClass(bool dimmed, bool readyToUnlock, bool flashing)
+    {
+        var classes = BusinessRowBase;
+        if (dimmed) classes += " opacity-55 grayscale-[0.4]";
+        if (readyToUnlock) classes += " shadow-[0_0_0_2px_var(--color-cartel-gold),0_2px_4px_rgba(0,0,0,0.25)]";
+        if (flashing) classes += " animate-row-flash";
+        return classes;
+    }
+
+    private static bool IsCurrentlyEarning(BusinessSnapshot snapshot) =>
+        snapshot.Owned > 0 && (snapshot.HasManager || snapshot.CycleAnchorUtc is not null);
+
+    private static BigValue PerSecondRevenue(BusinessSnapshot snapshot)
+    {
+        if (!IsCurrentlyEarning(snapshot))
+        {
+            return BigValue.Zero;
+        }
+
+        return snapshot.EffectiveCycleSeconds <= 0
+            ? snapshot.EffectiveRevenue.Multiply(10)
+            : snapshot.EffectiveRevenue.DivideBy(snapshot.EffectiveCycleSeconds);
+    }
+
+    private static string ProgressFillClass(bool shimmerReady, bool boosted)
+    {
+        if (boosted)
+        {
+            return shimmerReady
+                ? "animate-shimmer bg-[length:250%_100%] [background-image:linear-gradient(100deg,var(--color-cartel-crimson)_40%,#e08a8a_50%,var(--color-cartel-crimson)_60%)]"
+                : "bg-gradient-to-b from-[#c15252] to-cartel-crimson";
+        }
+
+        return shimmerReady
+            ? "animate-shimmer bg-[length:250%_100%] [background-image:linear-gradient(100deg,var(--color-cartel-agave)_40%,#a8e06a_50%,var(--color-cartel-agave)_60%)]"
+            : "bg-gradient-to-b from-[#79b350] to-cartel-agave";
+    }
+
+    private const string BuyBtnBase = "no-click-sound relative flex min-w-[90px] flex-1 flex-col items-center overflow-hidden rounded-[7px] px-4 py-2 text-white transition-transform duration-100 active:translate-y-0.5 lg:min-w-[110px]";
+    private static string BuyBtnClass(bool pulse, bool disabled, bool boosted)
+    {
+        var color = disabled
+            ? "bg-[#a8a196] cursor-not-allowed"
+            : boosted
+                ? "bg-gradient-to-b from-cartel-crimson to-[#5c1c1c] cursor-pointer"
+                : "bg-gradient-to-b from-cartel-gold to-cartel-rust cursor-pointer";
+        var classes = $"{BuyBtnBase} {color}";
+        if (pulse && !disabled) classes += " animate-buy-pulse";
+        return classes;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        Engine.SessionSuperseded -= HandleSessionSuperseded;
+        MaintenanceMode.OnChanged -= HandleMaintenanceModeChanged;
+        GameEnd.Ended -= HandleGameEnded;
+        GameEnd.Changed -= HandleGameEndChanged;
+
+        _timer?.Dispose();
+        _timer = null;
+
+        if (_tickLoop is not null)
+        {
+            try
+            {
+                await _tickLoop;
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Tick loop ended with an error");
+            }
+        }
+
+        if (Engine.IsAuthenticated)
+        {
+            try
+            {
+                await Engine.FlushAsync();
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Final flush on dispose failed");
+            }
+        }
+
+        _flushOnHideRef?.Dispose();
+    }
+}

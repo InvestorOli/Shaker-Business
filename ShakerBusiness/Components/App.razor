@@ -1,0 +1,33 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <base href="/"/>
+    <ResourcePreloader/>
+    <link rel="stylesheet" href="@Assets["output.css"]"/>
+    <link rel="icon" type="image/png" href="/images/Shaker/favicon-96x96.png" sizes="96x96" />
+    <link rel="icon" type="image/svg+xml" href="/images/Shaker/favicon.svg" />
+    <link rel="shortcut icon" href="/images/Shaker/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/images/Shaker/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="Shaker Business" />
+    <link rel="manifest" href="/images/Shaker/site.webmanifest" />
+    <ImportMap/>
+    <HeadOutlet @rendermode="new InteractiveServerRenderMode(prerender: false)"/>
+</head>
+
+<body>
+<Routes @rendermode="new InteractiveServerRenderMode(prerender: false)"/>
+<ReconnectModal/>
+<script src="@Assets["js/audio.js"]"></script>
+<script src="@Assets["js/chat.js"]"></script>
+<script src="@Assets["js/effects.js"]"></script>
+<script src="@Assets["js/shakerSnake.js"]"></script>
+<script src="@Assets["js/shakerTimberman.js"]"></script>
+<script src="@Assets["js/shakerFishingPond.js"]"></script>
+<script src="@Assets["js/phoneDrag.js"]"></script>
+<script src="@Assets["_framework/blazor.web.js"]"></script>
+</body>
+
+</html>

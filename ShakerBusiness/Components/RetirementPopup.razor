@@ -1,0 +1,22 @@
+<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" @onclick="OnClose">
+    <div class="w-full max-w-md rounded-[7px] border-2 border-cartel-gold bg-cartel-cream p-6 text-center shadow-2xl" @onclick:stopPropagation="true">
+        <img src="images/businesses/Oli.png" alt="" class="mx-auto mb-3 h-20 w-20 rounded-full border-4 border-cartel-gold object-cover"/>
+        <h3 class="m-0 mb-3 font-display text-xl text-cartel-espresso">Oli ist richtig stolz auf dich!</h3>
+        <p class="m-0 mb-2 text-sm text-cartel-ink/80">
+            Tausend Mal alles hingeschmissen und wieder aufgebaut, amigo. Das hat vor dir noch keiner geschafft - ich bin richtig stolz auf dich.
+        </p>
+        <p class="m-0 mb-2 text-sm text-cartel-ink/80">
+            Aber hör auf einen alten Investor: Mehr gibt es hier nicht zu holen. Du hast das Kartell so weit gebracht, wie es nur geht.
+        </p>
+        <p class="m-0 mb-4 text-sm font-bold text-cartel-agave">
+            Geh lieber in Rente. Such dir einen schönen Strand, ein kaltes Getränk, und lass die anderen für dich schuften.
+        </p>
+        <p class="m-0 mb-4 text-xs italic text-cartel-ink/50">- Dein Investor Oli</p>
+        <button class="rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-5 py-2 text-xs font-bold uppercase tracking-wide text-cartel-espresso" @onclick="OnClose">Ab in die Rente</button>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback OnClose { get; set; }
+}

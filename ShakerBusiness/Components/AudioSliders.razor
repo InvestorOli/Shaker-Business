@@ -1,0 +1,61 @@
+@using System.Globalization
+@inject IJSRuntime JS
+
+<div class="@ItemClass">
+    <label for="volume-slider">Musik</label>
+    <input id="volume-slider" type="range" min="0" max="1" step="0.01" value="@_volume.ToString(CultureInfo.InvariantCulture)" @oninput="OnVolumeChanged" class="w-full accent-cartel-gold"/>
+</div>
+
+<div class="@ItemClass">
+    <label for="sfx-volume-slider">Andere Sounds</label>
+    <input id="sfx-volume-slider" type="range" min="0" max="1" step="0.01" value="@_sfxVolume.ToString(CultureInfo.InvariantCulture)" @oninput="OnSfxVolumeChanged" class="w-full accent-cartel-gold"/>
+</div>
+
+@code {
+    private const string SidebarItemClass = "flex flex-[1_1_100%] flex-col gap-1.5 px-4 py-2.5 text-sm text-cartel-cream/70 md:flex-none";
+
+    [Parameter]
+    public string ItemClass { get; set; } = SidebarItemClass;
+
+    private double _volume = 0.4;
+    private double _sfxVolume = 0.6;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            _volume = await JS.InvokeAsync<double>("shakerAudio.applyStoredVolume", "volume-slider");
+            _sfxVolume = await JS.InvokeAsync<double>("shakerAudio.applyStoredSfxVolume", "sfx-volume-slider");
+            StateHasChanged();
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task OnVolumeChanged(ChangeEventArgs e)
+    {
+        if (TryParseVolume(e, out var volume))
+        {
+            _volume = volume;
+            await JS.InvokeVoidAsync("shakerAudio.setVolume", volume);
+        }
+    }
+
+    private async Task OnSfxVolumeChanged(ChangeEventArgs e)
+    {
+        if (TryParseVolume(e, out var volume))
+        {
+            _sfxVolume = volume;
+            await JS.InvokeVoidAsync("shakerAudio.setSfxVolume", volume);
+        }
+    }
+
+    private static bool TryParseVolume(ChangeEventArgs e, out double volume) =>
+        double.TryParse(e.Value?.ToString(), NumberStyles.Float, CultureInfo.InvariantCulture, out volume);
+}

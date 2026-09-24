@@ -1,0 +1,75 @@
+@if (_playing)
+{
+    <SlotMachineGame OnLeave="() => _playing = false"/>
+}
+else if (_verifying)
+{
+    <SlotCaptchaGate OnSolved="EnterSlots" OnCancel="() => _verifying = false"/>
+}
+else
+{
+    <div class="flex h-full flex-col bg-cartel-cream text-cartel-ink">
+        <div class="flex flex-1 flex-col gap-3 overflow-y-auto p-5">
+            <h3 class="m-0 font-display text-lg text-cartel-crimson">Shaker ist traurig, dass du wirklich Slots spielen willst.</h3>
+            <p class="m-0 text-sm leading-relaxed text-cartel-ink/80">
+                Glücksspiel verspricht schnelles Geld, aber die Chancen stehen fast immer gegen dich, amigo. Was als Spaß beginnt, kann schnell zu einer ernsthaften Abhängigkeit werden - mit echten finanziellen und persönlichen Folgen. Das hier ist ein Idle-Game, kein Casino.
+            </p>
+            <p class="m-0 text-sm leading-relaxed text-cartel-ink/80">
+                Und ehrlich, was Oli hier abzieht, wundert mich. Ich hab gehört, er betreibt irgendwo in einem Hinterzimmer ein illegales Casino - natürlich ohne dass das Finanzamt davon weiß. Jetzt stellt er dir plötzlich einen Automaten aufs Handy, bei dem das Haus praktisch immer gewinnt. Zum Glück nur mit Spielgeld. Ich sag nur: Frag dich mal, wer an deinen Verlusten verdient.
+            </p>
+            <div class="rounded-[7px] border-l-4 border-cartel-agave bg-[#eef3e2] p-3 text-sm">
+                <strong class="text-[#4f7a2a]">Hilfe in Deutschland</strong>
+                <p class="m-0 mt-1 text-cartel-ink/70">
+                    BZgA-Beratungstelefon "Check dein Spiel" (kostenlos &amp; anonym, auch am Wochenende): <strong>0800 1 37 27 00</strong><br/>
+                    check-dein-spiel.de - Selbsttest, anonyme Online-Beratung per Chat/Mail<br/>
+                    Bundesweite Spielersperre (OASIS): oasis-verbund.de<br/>
+                    Örtliche Suchtberatungsstellen findest du über die Suchthilfe-Suche der BZgA
+                </p>
+            </div>
+            <div class="rounded-[7px] border-l-4 border-cartel-gold bg-[#fff3d6] p-3 text-sm">
+                <strong class="text-[#b2551a]">Hilfe in der EU &amp; International</strong>
+                <p class="m-0 mt-1 text-cartel-ink/70">
+                    In fast jedem EU-Land gibt es eine kostenlose, anonyme nationale Suchtberatung - meist erreichbar über das jeweilige Gesundheitsministerium oder die nationale Glücksspielaufsicht, oft auch mit einer offiziellen Spielersperre (Selbstausschluss).<br/>
+                    Gamblers Anonymous (international, auch Online-Meetings): gamblersanonymous.org
+                </p>
+            </div>
+            <p class="m-0 text-center text-xs italic text-cartel-ink/50">Du bist nicht allein damit. Sprich mit jemandem.</p>
+            <div class="flex h-[320rem] flex-shrink-0 flex-col justify-around text-center text-xs italic text-cartel-ink/40">
+                @foreach (var line in ScrollTeasers)
+                {
+                    <span>@line</span>
+                }
+            </div>
+            <button class="mb-6 w-full flex-shrink-0 rounded-[10px] bg-gradient-to-b from-[#c94b4b] to-[#8f2f2f] px-4 py-3 font-display text-lg tracking-widest text-cartel-gold-light shadow-[0_4px_0_#3a2417,0_0_14px_rgba(201,75,75,0.5)] transition-transform active:translate-y-0.5" @onclick="() => _verifying = true">LASS MICH REIN</button>
+        </div>
+    </div>
+}
+
+@code {
+    private static readonly string[] ScrollTeasers =
+    [
+        "Immer noch da, amigo?",
+        "Du hast doch gerade gelesen, wie das endet.",
+        "Scroll ruhig weiter. Oli hat Zeit.",
+        "Noch ein Stück.",
+        "Der Automat läuft dir nicht weg.",
+        "Wirklich sicher?",
+        "Andere Leute bauen in der Zeit ein Business auf.",
+        "Oli zählt dein Scrollen mit.",
+        "Der Daumen tut schon weh, oder?",
+        "Weiter, weiter, weiter.",
+        "Hier unten gibt es nichts. Außer einem Button.",
+        "Gleich kommt er. Vielleicht.",
+        "Letzte Chance umzukehren.",
+        "Fast geschafft.",
+    ];
+
+    private bool _playing;
+    private bool _verifying;
+
+    private void EnterSlots()
+    {
+        _verifying = false;
+        _playing = true;
+    }
+}

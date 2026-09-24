@@ -1,0 +1,27 @@
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@inject GameEngineService Engine
+
+<div class="flex h-full flex-col gap-3 bg-cartel-cream p-5 text-cartel-ink">
+    <div class="flex items-center justify-between gap-3 rounded-[7px] border-l-4 border-cartel-gold bg-[#fff3d6] px-3 py-2.5">
+        <span class="text-sm text-cartel-ink/70">Mein Profil im Leaderboard &amp; in Kontakten verstecken</span>
+        <label class="relative inline-flex flex-shrink-0 cursor-pointer items-center">
+            <input type="checkbox" checked="@Engine.IsHidden" @onchange="OnHiddenToggledAsync" class="peer sr-only"/>
+            <div class="h-6 w-11 rounded-full bg-cartel-ink/30 transition-colors peer-checked:bg-cartel-agave"></div>
+            <div class="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform peer-checked:translate-x-5"></div>
+        </label>
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback OnHiddenChanged { get; set; }
+
+    private async Task OnHiddenToggledAsync(ChangeEventArgs e)
+    {
+        var hidden = e.Value is bool b && b;
+        await Engine.SetHiddenAsync(hidden);
+        await OnHiddenChanged.InvokeAsync();
+        StateHasChanged();
+    }
+}

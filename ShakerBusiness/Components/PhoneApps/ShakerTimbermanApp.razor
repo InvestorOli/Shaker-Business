@@ -1,0 +1,60 @@
+@using ShakerBusiness.Services
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject GameEngineService Engine
+
+<div class="flex h-full flex-col overflow-hidden bg-cartel-cream">
+    <canvas id="shaker-timberman-canvas" class="min-h-0 w-full flex-1 cursor-pointer"></canvas>
+
+    <div class="flex-shrink-0 px-4 py-2 text-center text-[1rem] text-cartel-ink/50">
+        Steuerung: linke/rechte Bildschirmhälfte tippen oder WASD/Pfeiltasten
+    </div>
+</div>
+
+@code {
+    private DotNetObjectReference<ShakerTimbermanApp>? _dotNetRef;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _dotNetRef = DotNetObjectReference.Create(this);
+            var playerImage = Engine.ProfileImageUrl ?? "images/businesses/Oli.png";
+            try
+            {
+                await JS.InvokeVoidAsync("shakerTimberman.init", "shaker-timberman-canvas", playerImage, Engine.TimberHighScore, _dotNetRef);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+    }
+
+    [JSInvokable]
+    public void OnTimberRunStarted() => Engine.OnTimberRunStarted();
+
+    [JSInvokable]
+    public void OnTimberChopScored() => Engine.OnTimberChopScored();
+
+    [JSInvokable]
+    public async Task OnTimberGameOver()
+    {
+        await Engine.OnTimberGameOverAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("shakerTimberman.destroy");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (JSException)
+        {
+        }
+
+        _dotNetRef?.Dispose();
+    }
+}

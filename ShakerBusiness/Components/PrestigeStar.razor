@@ -1,0 +1,30 @@
+@if (Count > 0)
+{
+    <svg class="@StarClass" viewBox="0 0 24 24" fill="@Fill">
+        <title>Prestige @Count</title>
+        <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/>
+    </svg>
+}
+
+@code {
+    private const int MaxColoredLevel = 50;
+
+    private static readonly string[] TierColors =
+    [
+        "#b08d57", "#adb5bd", "#d9a441", "#2f9e44", "#2f7ed8", "#9c4dcc", "#d63447", "#20c997", "#22d3ee", "url(#prestigeGradient10)",
+        "#d94426", "#d9bb26", "#80d926", "#26d944", "#26d9bb", "#267fd9", "#4426d9", "#bb26d9", "#d92680", "url(#prestigeGradient20)",
+        "#a55c12", "#8da512", "#2ba512", "#12a55c", "#128da5", "#122ba5", "#5c12a5", "#a5128d", "#a5122b", "url(#prestigeGradient30)",
+        "#f54747", "#f5bb47", "#bbf547", "#47f547", "#47f5bb", "#47bbf5", "#4747f5", "#bb47f5", "#f547bb", "url(#prestigeGradient40)",
+        "#d64700", "#d6d600", "#47d600", "#00d647", "#00d6d6", "#0047d6", "#4700d6", "#d600d6", "#d60047", "url(#prestigeGradient50)",
+    ];
+
+    [Parameter]
+    public int Count { get; set; }
+
+    [Parameter]
+    public string Class { get; set; } = "h-5 w-5 flex-shrink-0";
+
+    private string Fill => TierColors[Math.Min(Count, MaxColoredLevel) - 1];
+
+    private string StarClass => Count >= MaxColoredLevel ? Class + " drop-shadow-[0_0_3px_rgba(255,190,0,0.85)]" : Class;
+}

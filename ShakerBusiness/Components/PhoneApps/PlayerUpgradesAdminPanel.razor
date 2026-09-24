@@ -1,0 +1,185 @@
+@using Microsoft.EntityFrameworkCore
+@using ShakerBusiness.Data
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@inject IDbContextFactory<ShakerDbContext> DbFactory
+@inject GameEngineService Engine
+
+@if (!Engine.CanModerateChat)
+{
+    <p class="p-6 text-center text-sm text-cartel-crimson">Kein Zugriff.</p>
+}
+else if (_loading)
+{
+    <p class="p-6 text-center text-sm text-cartel-ink/60">Lädt…</p>
+}
+else if (_account is null)
+{
+    <p class="p-6 text-center text-sm text-cartel-ink/60">Spieler nicht gefunden.</p>
+}
+else
+{
+    <div class="flex flex-col gap-4 p-4 sm:p-6">
+        <div class="flex items-center gap-3">
+            @if (!string.IsNullOrEmpty(_account.ProfileImageUrl))
+            {
+                <img src="@_account.ProfileImageUrl" alt="" class="h-12 w-12 flex-shrink-0 rounded-full border-2 border-cartel-gold object-cover"/>
+            }
+            <div class="flex min-w-0 flex-col">
+                <span class="break-words text-base font-bold text-cartel-espresso">@_account.DisplayName</span>
+                <span class="text-xs text-cartel-ink/50">Mod/Dev-Ansicht &middot; gekaufte Upgrades</span>
+                <span class="text-xs text-cartel-ink/50">Durchgespielt: @_unlockProgressPercent.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)%</span>
+            </div>
+        </div>
+
+        <div class="flex flex-wrap gap-2">
+            <button class="@SubTabClass(_subTab == SubTab.Cash)" @onclick="() => _subTab = SubTab.Cash">Normal Upgrades (@_cashUpgrades.Count)</button>
+            <button class="@SubTabClass(_subTab == SubTab.Investor)" @onclick="() => _subTab = SubTab.Investor">Investor Upgrades (@_angelUpgrades.Count)</button>
+            <button class="@SubTabClass(_subTab == SubTab.Prestige)" @onclick="() => _subTab = SubTab.Prestige">Prestige Upgrades (@_prestigeUpgrades.Count)</button>
+        </div>
+
+        @if (_subTab == SubTab.Cash)
+        {
+            @if (_cashUpgrades.Count == 0)
+            {
+                <div class="rounded-[7px] bg-black/[0.03] px-3 py-2.5 text-sm italic text-cartel-ink/50">Noch keine gekauft.</div>
+            }
+            else
+            {
+                <div class="flex flex-col gap-1.5">
+                    @foreach (var upgrade in _cashUpgrades)
+                    {
+                        <div class="flex items-center gap-2 rounded-[7px] bg-black/[0.05] px-3 py-2">
+                            <img src="@(upgrade.BusinessId is null ? "images/businesses/Oli.png" : GameData.GetBusiness(upgrade.BusinessId).ImagePath)" alt="" class="h-7 w-7 flex-shrink-0 rounded-full object-cover"/>
+                            <div class="flex min-w-0 flex-col">
+                                <span class="text-sm font-bold text-cartel-espresso">@upgrade.Name</span>
+                                <span class="text-xs text-cartel-ink/60">x@(upgrade.ProfitMultiplier.ToString("0.##")) Profit</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else if (_subTab == SubTab.Investor)
+        {
+            @if (_angelUpgrades.Count == 0)
+            {
+                <div class="rounded-[7px] bg-black/[0.03] px-3 py-2.5 text-sm italic text-cartel-ink/50">Noch keine gekauft.</div>
+            }
+            else
+            {
+                <div class="flex flex-col gap-1.5">
+                    @foreach (var upgrade in _angelUpgrades)
+                    {
+                        <div class="flex items-center gap-2 rounded-[7px] bg-black/[0.05] px-3 py-2">
+                            <img src="@(upgrade.BusinessId is null ? "images/businesses/Oli.png" : GameData.GetBusiness(upgrade.BusinessId).ImagePath)" alt="" class="h-7 w-7 flex-shrink-0 rounded-full object-cover"/>
+                            <div class="flex min-w-0 flex-col">
+                                <span class="text-sm font-bold text-cartel-espresso">@upgrade.Name</span>
+                                <span class="text-xs text-cartel-ink/60">@upgrade.Description</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+        else
+        {
+            @if (_prestigeUpgrades.Count == 0)
+            {
+                <div class="rounded-[7px] bg-black/[0.03] px-3 py-2.5 text-sm italic text-cartel-ink/50">Noch keine geholt.</div>
+            }
+            else
+            {
+                <div class="flex flex-col gap-1.5">
+                    @foreach (var perk in _prestigeUpgrades)
+                    {
+                        <div class="flex items-center gap-2 rounded-[7px] bg-black/[0.05] px-3 py-2">
+                            <img src="images/businesses/Oli.png" alt="" class="h-7 w-7 flex-shrink-0 rounded-full object-cover"/>
+                            <div class="flex min-w-0 flex-col">
+                                <span class="text-sm font-bold text-cartel-espresso">@perk.Upgrade.Name</span>
+                                <span class="text-xs text-cartel-ink/60">x@(perk.Upgrade.ProfitMultiplier.ToString("0.##")) Profit auf alle Businesses</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        }
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string? TwitchUserId { get; set; }
+
+    private enum SubTab { Cash, Investor, Prestige }
+
+    private SubTab _subTab = SubTab.Cash;
+
+    private const string SubTabBase = "rounded-[7px] border-none px-3 py-1.5 text-center text-xs font-semibold transition-colors cursor-pointer";
+    private static string SubTabClass(bool active) => active
+        ? $"{SubTabBase} bg-cartel-gold text-cartel-espresso"
+        : $"{SubTabBase} bg-black/[0.06] text-cartel-ink/60 hover:bg-black/[0.1]";
+
+    private string? _loadedForUserId;
+    private bool _loading;
+    private PlayerAccount? _account;
+    private List<UpgradeDefinition> _cashUpgrades = [];
+    private List<AngelUpgradeDefinition> _angelUpgrades = [];
+    private List<PrestigeUpgradeDefinition> _prestigeUpgrades = [];
+    private double _unlockProgressPercent;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!Engine.CanModerateChat || TwitchUserId == _loadedForUserId)
+        {
+            return;
+        }
+
+        _loadedForUserId = TwitchUserId;
+        _account = null;
+        _cashUpgrades = [];
+        _angelUpgrades = [];
+        _prestigeUpgrades = [];
+
+        if (string.IsNullOrEmpty(TwitchUserId))
+        {
+            return;
+        }
+
+        _loading = true;
+        _unlockProgressPercent = 0;
+        StateHasChanged();
+
+        await using var db = await DbFactory.CreateDbContextAsync();
+        _account = await db.PlayerAccounts.AsNoTracking().FirstOrDefaultAsync(p => p.TwitchUserId == TwitchUserId);
+
+        var ownedByBusinessId = await db.PlayerBusinesses.AsNoTracking().Where(b => b.TwitchUserId == TwitchUserId).ToDictionaryAsync(b => b.BusinessId, b => b.Owned);
+        _unlockProgressPercent = GameData.UnlockProgressPercent(ownedByBusinessId);
+
+        var cashUpgradeIds = await db.PlayerUpgrades.AsNoTracking().Where(u => u.TwitchUserId == TwitchUserId).Select(u => u.UpgradeId).ToListAsync();
+        _cashUpgrades = cashUpgradeIds
+            .Select(id => GameData.Upgrades.FirstOrDefault(u => u.Id == id))
+            .Where(u => u is not null)
+            .Select(u => u!)
+            .OrderBy(u => u.Cost)
+            .ToList();
+
+        var prestigeCount = _account?.PrestigeCount ?? 0;
+        _prestigeUpgrades = cashUpgradeIds
+            .Select(GameData.FindPrestigeUpgrade)
+            .Where(p => p is not null && p.PrestigeLevel <= prestigeCount)
+            .Select(p => p!)
+            .OrderBy(p => p.PrestigeLevel)
+            .ToList();
+
+        var angelUpgradeIds = await db.PlayerAngelUpgrades.AsNoTracking().Where(u => u.TwitchUserId == TwitchUserId).Select(u => u.AngelUpgradeId).ToListAsync();
+        _angelUpgrades = angelUpgradeIds
+            .Select(AngelUpgradeData.GetById)
+            .Where(u => u is not null)
+            .Select(u => u!)
+            .OrderBy(u => u.Cost)
+            .ToList();
+
+        _loading = false;
+    }
+}

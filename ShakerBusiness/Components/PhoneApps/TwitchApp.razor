@@ -1,0 +1,9 @@
+@inject NavigationManager Navigation
+
+<div class="h-full w-full bg-black">
+    <iframe src="@TwitchEmbedUrl" class="h-full w-full border-0" allowfullscreen="true" allow="autoplay; fullscreen"></iframe>
+</div>
+
+@code {
+    private string TwitchEmbedUrl => $"https://player.twitch.tv/?channel=shaker&parent={new Uri(Navigation.BaseUri).Host}&muted=true";
+}

@@ -1,0 +1,333 @@
+@using System.Numerics
+@using System.Text.Json
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@inject GameEngineService Engine
+@inject IJSRuntime JS
+
+<div class="mx-auto max-w-[1100px] overflow-hidden rounded-[7px] border-2 border-cartel-gold bg-cartel-cream text-cartel-ink shadow-[inset_0_0_0_4px_rgba(0,0,0,0.06)]">
+    <div class="flex h-2 [background:repeating-linear-gradient(90deg,var(--color-cartel-rust)_0,var(--color-cartel-rust)_10%,var(--color-cartel-gold)_10%,var(--color-cartel-gold)_20%,var(--color-cartel-agave)_20%,var(--color-cartel-agave)_30%,var(--color-cartel-crimson)_30%,var(--color-cartel-crimson)_40%)]"></div>
+
+    <div class="p-4 sm:p-6">
+    <div class="mb-4 flex flex-wrap items-center gap-3 sm:flex-nowrap sm:gap-6">
+        <img src="images/businesses/Oli.png" alt="" class="h-12 w-12 flex-shrink-0 rounded-full border-[3px] border-cartel-espresso object-cover ring-2 ring-cartel-gold ring-offset-2 ring-offset-cartel-cream sm:h-16 sm:w-16"/>
+        <div class="flex min-w-[calc(50%-0.4rem)] flex-1 flex-col items-center rounded-[7px] bg-black/[0.06] px-3 py-2.5 sm:min-w-0 sm:px-6 sm:py-3">
+            <span class="text-[1.3rem] font-extrabold text-cartel-agave sm:text-[1.6rem]">@BigNumberFormatter.FormatPlain(Engine.AngelCount)</span>
+            <span class="text-xs text-cartel-ink/60">Investor Mr. Oli (aktuell)</span>
+            <span class="mt-0.5 text-[0.68rem] font-bold text-cartel-agave">+@BigNumberFormatter.FormatPlain(Engine.AngelCount * EffectivenessPercentScalar)% Profit</span>
+            <span class="mt-1 rounded-[7px] bg-cartel-agave/15 px-2 py-0.5 text-[0.72rem] font-extrabold text-cartel-agave">@BigNumberFormatter.FormatPercent(Engine.AngelEffectivenessRate) Investor-Effektivität</span>
+            @if (Engine.AngelEffectivenessBonus > 0)
+            {
+                <span class="mt-0.5 text-[0.6rem] text-cartel-agave/60">@EffectivenessBreakdown()</span>
+            }
+        </div>
+        <div class="flex min-w-[calc(50%-0.4rem)] flex-1 flex-col items-center rounded-[7px] bg-black/[0.06] px-3 py-2.5 sm:min-w-0 sm:px-6 sm:py-3">
+            <span class="text-[1.3rem] font-extrabold text-cartel-rust sm:text-[1.6rem]">+@BigNumberFormatter.FormatPlain(Engine.AngelPreview)</span>
+            <span class="text-xs text-cartel-ink/60">Anteile bei nächstem Reset</span>
+            @if (Engine.OliChatRound >= 3)
+            {
+                <span class="mt-0.5 text-[0.68rem] font-bold text-cartel-rust">(@FormatModifier(Engine.OliModifierPercent) von Oliver)</span>
+            }
+        </div>
+    </div>
+
+    <p class="text-sm leading-relaxed text-cartel-ink/60">
+        Jeder Anteil an Investor Oliver bringt dir dauerhaft +2% auf alle Profite und Kartell-Garantie,
+        amigo. Ein Reset räumt dein Business komplett leer (Cash, Businesses, Manager, Upgrades), aber
+        deine Anteile bleiben für immer dein Eigentum und werden sogar noch mehr.
+    </p>
+    <p class="text-sm leading-relaxed text-cartel-ink/60">
+        Geheimtipp vom El Jefe: Reset Anteile lohnen sich erst ab 150 Stück für den ersten Reset
+    </p>
+
+    <div class="mb-4 overflow-hidden rounded-[7px] bg-[#d9cfc0] shadow-[0_2px_6px_rgba(0,0,0,0.15)]">
+        <div class="flex items-center gap-2.5 bg-cartel-espresso px-3.5 py-2.5">
+            <img src="images/businesses/Oli.png" alt="" class="h-9 w-9 flex-shrink-0 rounded-full object-cover"/>
+            <div class="flex min-w-0 flex-col">
+                <span class="flex items-center gap-1.5">
+                    <span class="font-display text-base tracking-wide text-cartel-gold">Investor Oliver</span>
+                    <span class="rounded-[7px] border border-cartel-gold/50 bg-cartel-gold/15 px-1.5 py-0.5 text-[0.62rem] font-bold uppercase tracking-wide text-cartel-gold">Chat</span>
+                </span>
+                <span class="text-xs text-cartel-cream/70">El Jefe der Investoren &middot; du kannst ihm jederzeit schreiben</span>
+            </div>
+        </div>
+
+        @if (CanNegotiate)
+        {
+            <div class="mx-3.5 mt-3.5 animate-glow-pulse rounded-[7px] border-l-4 border-cartel-agave bg-[#eef3e2] px-3.5 py-2.5 text-sm">
+                <strong class="text-[#4f7a2a]">Der Boss ist bereit, amigo!</strong>
+                <span class="text-cartel-ink/60"> Schreib Oliver jetzt eine Nachricht und hol dir den Deal - oder lass die Anteile noch etwas dicker werden, ganz wie du willst.</span>
+            </div>
+        }
+
+        <div class="flex max-h-[440px] min-h-[220px] flex-col gap-2 overflow-y-auto p-3.5 [scroll-behavior:smooth]" id="oli-chat-log">
+            @if (_messages.Count == 0 && Engine.OliChatRound == 0)
+            {
+                <div class="m-auto text-center text-sm italic text-cartel-ink/60">
+                    Schreib Oliver an, amigo - aber er macht hier keine Geschenke ohne eine gute Show.
+                </div>
+            }
+
+            @for (var i = 0; i < _messages.Count; i++)
+            {
+                var msg = _messages[i];
+                var isFinalOliReply = !msg.IsPlayer && i == _messages.Count - 1 && Engine.OliChatRound >= 3;
+                <div @key="i" class="flex items-end gap-1.5 @(msg.IsPlayer ? "flex-row-reverse" : "") @(isFinalOliReply ? "animate-number-reveal" : "animate-bubble-in")">
+                    @if (!msg.IsPlayer)
+                    {
+                        <img src="images/businesses/Oli.png" alt="" class="h-[26px] w-[26px] flex-shrink-0 rounded-full object-cover"/>
+                    }
+                    <div class="max-w-[82%] break-words rounded-[7px] px-3 py-2 text-sm leading-snug sm:max-w-[72%] @(msg.IsPlayer ? "bg-cartel-agave text-white" : "border border-[#cbb99f] bg-white text-cartel-ink")">@msg.Text</div>
+                    @if (msg.IsPlayer && !string.IsNullOrEmpty(Engine.ProfileImageUrl))
+                    {
+                        <img src="@Engine.ProfileImageUrl" alt="" class="h-[26px] w-[26px] flex-shrink-0 rounded-full object-cover"/>
+                    }
+                </div>
+            }
+
+            @if (_waitingForOli)
+            {
+                <div class="flex items-end gap-1.5">
+                    <img src="images/businesses/Oli.png" alt="" class="h-[26px] w-[26px] flex-shrink-0 rounded-full object-cover"/>
+                    <div class="flex items-center gap-1 rounded-[7px] border border-[#cbb99f] bg-white px-3.5 py-2.5">
+                        <span class="h-1.5 w-1.5 animate-dot-bounce rounded-full bg-cartel-ink/60"></span>
+                        <span class="h-1.5 w-1.5 animate-dot-bounce rounded-full bg-cartel-ink/60" style="animation-delay:0.15s"></span>
+                        <span class="h-1.5 w-1.5 animate-dot-bounce rounded-full bg-cartel-ink/60" style="animation-delay:0.3s"></span>
+                    </div>
+                </div>
+            }
+        </div>
+
+        @if (Engine.OliChatRound >= 3)
+        {
+            <div class="mx-3.5 mb-2 flex flex-col gap-0.5 rounded-[7px] border-l-4 border-cartel-agave bg-[#eef3e2] px-3.5 py-2.5 text-sm">
+                <strong class="text-sm text-[#4f7a2a]">Deal für den nächsten Reset steht fest (@FormatModifier(Engine.OliModifierPercent))</strong>
+                <span class="text-cartel-ink/60">Schreib ihm ruhig weiter, amigo - der Bonus auf deine <em>neuen</em> Anteile beim nächsten Reset ändert sich davon nicht mehr.</span>
+            </div>
+        }
+
+        <div class="mx-3.5 mb-3.5 flex gap-2">
+            <input @bind="_draftMessage" @bind:event="oninput" @onkeydown="OnInputKeyDown" placeholder="Nachricht an Oliver..." disabled="@_waitingForOli" class="@ChatInputClass(CanNegotiate)"/>
+            <button class="@OliChatSendClass(_waitingForOli || string.IsNullOrWhiteSpace(_draftMessage))" @onclick="SendMessageAsync" disabled="@(_waitingForOli || string.IsNullOrWhiteSpace(_draftMessage))">Senden</button>
+        </div>
+    </div>
+
+    @if (Engine.AngelPreview <= 1)
+    {
+        <div class="flex flex-col gap-0.5 rounded-[7px] border-l-4 border-[#7a9c52] bg-[#eef3e2] px-3.5 py-3 text-sm">
+            <strong class="text-sm text-[#4f7a2a]">Oliver macht noch keine Deals mit dir</strong>
+            <span class="text-cartel-ink/60">Erst wenn's um mehr als 1 neuen Anteil geht (aktuell @BigNumberFormatter.FormatPlain(Engine.AngelPreview)), setzt sich der Boss mit dir an einen Tisch, amigo.</span>
+        </div>
+    }
+    else if (Engine.OliChatRound < 3)
+    {
+        <div class="flex flex-col gap-0.5 rounded-[7px] border-l-4 border-cartel-rust bg-[#fff3d6] px-3.5 py-3 text-sm">
+            <strong class="text-sm text-[#b2551a]">Erst verhandeln, dann Deal</strong>
+            <span class="text-cartel-ink/60">Kein Reset ohne Verhandlung, amigo - schreib Oliver oben im Chat an. Erst wenn die Verhandlung durch ist, gibt's den Reset-Button.</span>
+        </div>
+    }
+    else if (!_confirmingClaim)
+    {
+        <button class="block w-full cursor-pointer rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust py-3 font-bold text-white transition-transform duration-100 active:translate-y-0.5" @onclick="() => _confirmingClaim = true">
+            Deal mit Oliver abschließen &amp; Reset vorbereiten
+        </button>
+    }
+    else
+    {
+        <div class="rounded-[7px] bg-black/[0.06] p-4">
+            <p>Der Boss würde dir <strong>@BigNumberFormatter.FormatPlain(Engine.AngelPreview)</strong> neue Anteile überschreiben (basierend auf deinem gesamten Lifetime-Umsatz) - oben drauf zu deinen aktuellen <strong>@BigNumberFormatter.FormatPlain(Engine.AngelCount)</strong>, sobald du unterschreibst.</p>
+            <p class="text-sm text-cartel-crimson">Cash, Businesses, Manager und Upgrades werden dabei komplett plattgemacht - Geschäft ist Geschäft, amigo.</p>
+            <div class="mt-2 flex flex-col gap-3 sm:flex-row">
+                <button class="no-click-sound w-full rounded-[7px] bg-cartel-crimson px-5 py-2.5 font-bold text-white transition-transform duration-100 active:translate-y-0.5 sm:w-auto" @onclick="ConfirmClaimAsync">Jetzt zurücksetzen</button>
+                <button class="w-full rounded-[7px] border border-cartel-ink/50 px-5 py-2.5 text-cartel-ink transition-transform duration-100 active:translate-y-0.5 sm:w-auto" @onclick="() => _confirmingClaim = false">Abbrechen</button>
+            </div>
+        </div>
+    }
+
+    </div>
+</div>
+
+@code {
+    private bool _confirmingClaim;
+
+    private static string FormatModifier(double percent) =>
+        (percent >= 0 ? "+" : "") + Math.Round(percent * 100) + "%";
+
+    private BigInteger EffectivenessPercentScalar =>
+        new(Math.Round(Engine.AngelEffectivenessRate * 100));
+
+    private string EffectivenessBreakdown()
+    {
+        var parts = new List<string> { $"Basis {BigNumberFormatter.FormatPercent(Engine.AngelEffectivenessBaseRate)}" };
+        if (Engine.AngelEffectivenessBonus > 0)
+        {
+            parts.Add($"Bonus {BigNumberFormatter.FormatPercent(Engine.AngelEffectivenessBonus)}");
+        }
+
+        return $"({string.Join(" + ", parts)})";
+    }
+
+    private const string OliChatSendBase = "rounded-[7px] px-4 py-2 font-bold text-white transition-transform duration-100 active:translate-y-0.5";
+    private static string OliChatSendClass(bool disabled) => disabled
+        ? $"{OliChatSendBase} bg-[#a8a196] cursor-not-allowed"
+        : $"{OliChatSendBase} bg-gradient-to-b from-cartel-gold to-cartel-rust cursor-pointer";
+
+    private bool CanNegotiate => Engine.AngelPreview > 1 && Engine.OliChatRound < 3;
+
+    private const string ChatInputBase = "flex-1 rounded-[7px] border px-3 py-2 text-sm";
+    private static string ChatInputClass(bool highlight) => highlight
+        ? $"{ChatInputBase} border-cartel-agave animate-glow-pulse"
+        : $"{ChatInputBase} border-[#cbb99f]";
+
+    private readonly List<(bool IsPlayer, string Text)> _messages = [];
+    private string _draftMessage = "";
+    private bool _waitingForOli;
+    private bool _pendingScroll;
+    private bool _historyRestored;
+
+    private sealed record ChatMessageDto(bool IsPlayer, string Text);
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!_historyRestored)
+        {
+            _historyRestored = true;
+            await RestoreChatHistoryAsync();
+        }
+
+        if (_pendingScroll)
+        {
+            _pendingScroll = false;
+            await ScrollChatToBottomAsync();
+        }
+    }
+
+    private async Task ConfirmClaimAsync()
+    {
+        await Engine.ClaimAngelsAsync();
+        _confirmingClaim = false;
+        await ClearChatHistoryAsync();
+        try
+        {
+            await JS.InvokeVoidAsync("shakerAudio.playInvest");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task OnInputKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendMessageAsync();
+        }
+    }
+
+    private async Task SendMessageAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_draftMessage) || _waitingForOli)
+        {
+            return;
+        }
+
+        _messages.Add((true, _draftMessage.Trim()));
+        _draftMessage = "";
+        _waitingForOli = true;
+        _pendingScroll = true;
+        await PersistChatHistoryAsync();
+        StateHasChanged();
+
+        await Task.Delay(2000);
+
+        var reply = Engine.AngelPreview <= 1
+            ? GameData.OliNotInterestedReplies[Random.Shared.Next(GameData.OliNotInterestedReplies.Length)]
+            : (await Engine.SendOliChatMessageAsync()).Reply;
+
+        _messages.Add((false, reply));
+        _waitingForOli = false;
+        _pendingScroll = true;
+        await PersistChatHistoryAsync();
+    }
+
+    private async Task ScrollChatToBottomAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("oliChatScrollToBottom", "oli-chat-log");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task PersistChatHistoryAsync()
+    {
+        var dto = _messages.Select(m => new ChatMessageDto(m.IsPlayer, m.Text)).ToList();
+        var json = JsonSerializer.Serialize(dto);
+        var token = Engine.ProtectChatHistory(json);
+        try
+        {
+            await JS.InvokeVoidAsync("shakerEffects.storeOliChatHistory", token);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task RestoreChatHistoryAsync()
+    {
+        string? token;
+        try
+        {
+            token = await JS.InvokeAsync<string?>("shakerEffects.readOliChatHistory");
+        }
+        catch (JSDisconnectedException)
+        {
+            return;
+        }
+
+        if (string.IsNullOrEmpty(token))
+        {
+            return;
+        }
+
+        var json = Engine.UnprotectChatHistory(token);
+        if (json is null)
+        {
+            return;
+        }
+
+        List<ChatMessageDto>? dto;
+        try
+        {
+            dto = JsonSerializer.Deserialize<List<ChatMessageDto>>(json);
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+
+        if (dto is null)
+        {
+            return;
+        }
+
+        _messages.Clear();
+        _messages.AddRange(dto.Select(m => (m.IsPlayer, m.Text)));
+        _pendingScroll = true;
+        StateHasChanged();
+    }
+
+    private async Task ClearChatHistoryAsync()
+    {
+        _messages.Clear();
+        try
+        {
+            await JS.InvokeVoidAsync("shakerEffects.clearOliChatHistory");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+}

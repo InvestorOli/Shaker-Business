@@ -1,0 +1,365 @@
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@implements IDisposable
+@inject GameEngineService Engine
+
+<div class="mx-auto flex max-w-[1100px] flex-col gap-3">
+    <p class="m-0 text-sm text-cartel-cream/70">
+        Jedes Business schaltet ab bestimmten Owned-Schwellen dauerhafte Boni frei - die ersten 6 (bei
+        manchen mehr) verdoppeln jeweils die Zyklusgeschwindigkeit, alle weiteren erhöhen den Profit.
+        Shaker Stihl boostet je nach eigenem Owned-Stand außerdem andere Businesses. Alles stapelt sich
+        miteinander. Klick auf ein Business, um seine Stufen zu sehen, fahr mit der Maus über eine Stufe
+        für Details.
+    </p>
+    <p class="m-0 text-sm text-cartel-cream/70">
+        Zusätzlich gibt's Shaker Everything: sobald <em>jedes</em> Business für sich mindestens so viele
+        Einheiten hat wie eine Stufe verlangt (sie müssen nicht alle exakt gleich viele haben), gibt's
+        einen Bonus für alle Businesses gleichzeitig.
+    </p>
+    <div class="flex flex-wrap items-center justify-between gap-3 rounded-[7px] border border-cartel-gold/40 bg-cartel-cream px-5 py-3">
+        <div class="flex flex-wrap items-center gap-2">
+            <span class="text-sm font-bold text-cartel-espresso">Spiel zu @(Engine.UnlockProgressPercent.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture))% durchgespielt</span>
+            @if (Engine.PrestigeCount > 0)
+            {
+                <span class="rounded-[7px] bg-cartel-gold/20 px-2.5 py-1 text-xs font-bold text-cartel-espresso">Prestige @Engine.PrestigeCount</span>
+            }
+        </div>
+        <div class="flex flex-col items-end gap-1">
+            <button class="rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-4 py-2 text-xs font-bold uppercase tracking-wide text-cartel-espresso transition-[filter] disabled:cursor-not-allowed disabled:from-cartel-ink/20 disabled:to-cartel-ink/20 disabled:text-cartel-ink/40 disabled:grayscale" disabled="@(!Engine.CanPrestige)" @onclick="OpenPrestigeConfirm">Prestige</button>
+            @if (Engine.IsGuest)
+            {
+                <span class="text-[0.65rem] text-cartel-ink/50">Nur mit Twitch-Login möglich</span>
+            }
+            @if (_prestigeErrorMessage is not null)
+            {
+                <span class="text-[0.65rem] text-cartel-crimson">@_prestigeErrorMessage</span>
+            }
+        </div>
+    </div>
+
+    @if (_showPrestigeConfirm)
+    {
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" @onclick="() => _showPrestigeConfirm = false">
+            <div class="w-full max-w-md rounded-[7px] border border-cartel-gold/40 bg-cartel-cream p-5 shadow-xl" @onclick:stopPropagation="true">
+                <h3 class="m-0 mb-3 font-display text-lg text-cartel-espresso">Wirklich prestigen?</h3>
+                <p class="m-0 mb-2 text-sm text-cartel-ink/70">
+                    Dein kompletter Fortschritt wird auf 0 zurückgesetzt - auch dein Lifetime-Umsatz.
+                </p>
+                <p class="m-0 mb-4 text-sm font-bold text-cartel-agave">
+                    @if (Engine.PrestigeCount < GameData.PrestigeUpgradeCount)
+                    {
+                        <text>Dafür schaltest du ein neues Paket in Olis Bunker frei: dauerhaft x@(GameData.FormatMultiplier(GameData.PrestigeUpgradeProfitMultiplier(Engine.PrestigeCount + 1))) Profit auf alle Businesses.</text>
+                    }
+                    else
+                    {
+                        <text>Neue Pakete in Olis Bunker gibt es nur bis Prestige @GameData.PrestigeUpgradeCount - danach bleibt es bei dem, was du schon hast.</text>
+                    }
+                </p>
+                <div class="flex justify-end gap-2">
+                    <button class="rounded-[7px] px-4 py-2 text-xs font-bold uppercase text-cartel-ink/60" @onclick="() => _showPrestigeConfirm = false">Abbrechen</button>
+                    <button class="rounded-[7px] bg-cartel-crimson px-4 py-2 text-xs font-bold uppercase text-white" @onclick="ConfirmPrestigeAsync">Ja, alles zurücksetzen</button>
+                </div>
+            </div>
+        </div>
+    }
+
+    @{
+        var capitalist = Engine.GetCapitalistStatus();
+        var capitalistTiers = BuildCapitalistTiers();
+        var capitalistAchievedCount = capitalistTiers.Count(t => capitalist.MinOwned >= t.Threshold);
+        var capitalistNextTier = capitalistTiers.FirstOrDefault(t => capitalist.MinOwned < t.Threshold);
+        var capitalistHasNext = capitalistNextTier is not null;
+        var capitalistExpanded = _expanded.Contains(CapitalistCardId);
+    }
+    <div class="rounded-[7px] border border-cartel-gold/40 bg-cartel-cream shadow-[0_2px_4px_rgba(0,0,0,0.25)]">
+        <button class="flex w-full flex-wrap items-center gap-4 px-5 py-4 text-left sm:flex-nowrap" @onclick="() => ToggleExpanded(CapitalistCardId)">
+            <div class="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full border-2 border-cartel-gold bg-cartel-gold/15 sm:h-16 sm:w-16">
+                <svg class="h-6 w-6 text-cartel-gold-light sm:h-8 sm:w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="7" height="7" rx="1"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1"/>
+                    <rect x="3" y="14" width="7" height="7" rx="1"/>
+                    <rect x="14" y="14" width="7" height="7" rx="1"/>
+                </svg>
+            </div>
+            <div class="flex min-w-0 flex-1 flex-col gap-1">
+                <span class="text-base font-bold text-cartel-espresso">Shaker Everything</span>
+                <span class="text-sm text-cartel-ink/60">
+                    @capitalistAchievedCount/@capitalistTiers.Count freigeschaltet
+                    @if (capitalist.SpeedMultiplier > 1)
+                    {
+                        <text> &middot; x@(capitalist.SpeedMultiplier.ToString("0.####")) schneller</text>
+                    }
+                    @if (capitalist.ProfitMultiplier > 1)
+                    {
+                        <text> &middot; x@(capitalist.ProfitMultiplier.ToString("0.####")) Profit</text>
+                    }
+                </span>
+            </div>
+            @if (capitalistHasNext)
+            {
+                <span class="flex-shrink-0 rounded-[7px] bg-cartel-agave/15 px-3 py-1.5 text-sm font-bold text-cartel-agave">
+                    Nächstes bei @capitalistNextTier!.Threshold (min. @capitalist.MinOwned/@capitalistNextTier!.Threshold)
+                </span>
+            }
+            else if (capitalistTiers.Count > 0)
+            {
+                <span class="flex-shrink-0 rounded-[7px] bg-cartel-gold/20 px-3 py-1.5 text-sm font-bold text-cartel-espresso">
+                    Alle Stufen frei
+                </span>
+            }
+            <span class="flex-shrink-0 text-lg text-cartel-ink/40">@(capitalistExpanded ? "▲" : "▼")</span>
+        </button>
+
+        @if (capitalistExpanded)
+        {
+            <div class="grid grid-cols-2 gap-3 border-t border-cartel-ink/10 p-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                @foreach (var tier in capitalistTiers)
+                {
+                    var achieved = capitalist.MinOwned >= tier.Threshold;
+                    var isNext = capitalistHasNext && tier.Threshold == capitalistNextTier!.Threshold;
+                    <div class="group relative">
+                        <div class="@TileClass(achieved, isNext)">
+                            @if (achieved)
+                            {
+                                <span class="text-xl leading-none">✓</span>
+                            }
+                            else
+                            {
+                                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                    <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+                                </svg>
+                            }
+                            <span class="text-base font-bold leading-none">@tier.Threshold</span>
+                        </div>
+                        <div class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-max max-w-[190px] -translate-x-1/2 flex-col items-center gap-1 rounded-[7px] bg-cartel-espresso px-3 py-2 text-center text-xs font-bold text-cartel-gold-light shadow-lg group-hover:flex">
+                            <span>@(tier.IsSpeed ? "Alle Businesses: Zyklus 2x schneller" : "Alle Businesses: Profit x2")</span>
+                            <span class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-cartel-espresso"></span>
+                        </div>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+
+    @foreach (var (business, owned, profitTiers) in Engine.GetUnlockRows())
+    {
+        var tiers = BuildTiers(business.Id, profitTiers);
+        var achievedCount = tiers.Count(t => owned >= t.Threshold);
+        var nextTier = tiers.FirstOrDefault(t => owned < t.Threshold);
+        var hasNext = nextTier is not null;
+        var currentProfitMultiplier = GameData.UnlockProfitMultiplier(business.Id, owned);
+        var currentSpeedMultiplier = GameData.MilestoneSpeedMultiplier(owned) * GameData.ExtraSpeedMultiplier(business.Id, owned);
+        var isExpanded = _expanded.Contains(business.Id);
+
+        <div class="rounded-[7px] bg-cartel-cream shadow-[0_2px_4px_rgba(0,0,0,0.25)]">
+            <button class="flex w-full flex-wrap items-center gap-4 px-5 py-4 text-left sm:flex-nowrap" @onclick="() => ToggleExpanded(business.Id)">
+                <img src="@business.ImagePath" alt="" class="h-12 w-12 flex-shrink-0 rounded-full border-2 border-cartel-espresso object-cover sm:h-16 sm:w-16"/>
+                <div class="flex min-w-0 flex-1 flex-col gap-1">
+                    <span class="text-base font-bold text-cartel-espresso">@business.Name</span>
+                    <span class="text-sm text-cartel-ink/60">
+                        @achievedCount/@tiers.Count freigeschaltet
+                        @if (currentSpeedMultiplier > 1)
+                        {
+                            <text> &middot; x@(currentSpeedMultiplier.ToString("0.####")) schneller</text>
+                        }
+                        @if (currentProfitMultiplier > 1)
+                        {
+                            <text> &middot; x@(currentProfitMultiplier.ToString("0.####")) Profit</text>
+                        }
+                    </span>
+                </div>
+                @if (hasNext)
+                {
+                    <span class="flex-shrink-0 rounded-[7px] bg-cartel-agave/15 px-3 py-1.5 text-sm font-bold text-cartel-agave">
+                        Nächstes bei @nextTier!.Threshold (@owned/@nextTier!.Threshold)
+                    </span>
+                }
+                else if (tiers.Count > 0)
+                {
+                    <span class="flex-shrink-0 rounded-[7px] bg-cartel-gold/20 px-3 py-1.5 text-sm font-bold text-cartel-espresso">
+                        Alle Stufen frei
+                    </span>
+                }
+                <span class="flex-shrink-0 text-lg text-cartel-ink/40">@(isExpanded ? "▲" : "▼")</span>
+            </button>
+
+            @if (isExpanded)
+            {
+                <div class="grid grid-cols-2 gap-3 border-t border-cartel-ink/10 p-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                    @foreach (var tier in tiers)
+                    {
+                        var achieved = owned >= tier.Threshold;
+                        var isNext = hasNext && tier.Threshold == nextTier!.Threshold;
+                        <div class="group relative">
+                            <div class="@TileClass(achieved, isNext)">
+                                @if (achieved)
+                                {
+                                    <span class="text-xl leading-none">✓</span>
+                                }
+                                else
+                                {
+                                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="5" y="11" width="14" height="10" rx="2"/>
+                                        <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+                                    </svg>
+                                }
+                                <span class="text-base font-bold leading-none">@tier.Threshold</span>
+                            </div>
+                            <div class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-2 hidden w-max max-w-[170px] -translate-x-1/2 flex-col items-center gap-1 rounded-[7px] bg-cartel-espresso px-3 py-2 text-center text-xs font-bold text-cartel-gold-light shadow-lg group-hover:flex">
+                                @if (tier.TargetImagePath is not null)
+                                {
+                                    <img src="@tier.TargetImagePath" alt="" class="h-6 w-6 rounded-full border border-cartel-gold object-cover"/>
+                                }
+                                <span>
+                                    @(tier.IsSpeed
+                                        ? "Zyklus 2x schneller"
+                                        : tier.TargetBusinessName is not null
+                                            ? $"{tier.TargetBusinessName} Profit x{tier.Value.ToString("0.####")}"
+                                            : $"Profit x{tier.Value.ToString("0.####")}")
+                                </span>
+                                <span class="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-cartel-espresso"></span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+
+    @{
+        var namedSuffixCount = BigNumberFormatter.NamedSuffixCount;
+        var suffixEntries = new (string Name, bool Achieved)[namedSuffixCount + 1];
+        var reachedSuffixCount = 0;
+        for (var i = 0; i < suffixEntries.Length; i++)
+        {
+            var name = i < namedSuffixCount ? BigNumberFormatter.Suffixes[i] : "Römischer Shaker";
+            var reached = Engine.LifetimeEarnings >= BigNumberFormatter.SuffixThreshold(i);
+            suffixEntries[i] = (name, reached);
+            if (reached)
+            {
+                reachedSuffixCount++;
+            }
+        }
+    }
+    <div class="rounded-[7px] border border-cartel-gold/40 bg-cartel-cream p-4">
+        <h3 class="m-0 mb-1 font-display text-base text-cartel-espresso">Zahlen-Suffixe</h3>
+        <p class="m-0 mb-3 text-sm text-cartel-ink/60">@reachedSuffixCount/@suffixEntries.Length erreicht &middot; basiert auf deinem Lifetime-Umsatz</p>
+        <div class="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+            @foreach (var (suffixName, achieved) in suffixEntries)
+            {
+                <div class="flex items-center gap-1.5 rounded-[7px] border px-2.5 py-2 @(achieved ? "border-cartel-agave/30 bg-cartel-agave/15 text-cartel-agave" : "border-cartel-ink/10 bg-black/[0.04] text-cartel-ink/50")">
+                    @if (achieved)
+                    {
+                        <span class="flex-shrink-0 text-sm font-bold leading-none">&#10003;</span>
+                    }
+                    else
+                    {
+                        <svg class="h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="5" y="11" width="14" height="10" rx="2"/>
+                            <path d="M8 11V7a4 4 0 0 1 8 0v4"/>
+                        </svg>
+                    }
+                    <span class="truncate text-xs font-bold">@suffixName</span>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private const string CapitalistCardId = "Everything";
+
+    private System.Threading.Timer? _liveRefreshTimer;
+    private readonly HashSet<string> _expanded = [];
+
+    protected override void OnInitialized()
+    {
+        _liveRefreshTimer = new System.Threading.Timer(_ => InvokeAsync(StateHasChanged), null, TimeSpan.FromMilliseconds(300), TimeSpan.FromMilliseconds(300));
+    }
+
+    [Parameter]
+    public EventCallback OnRetired { get; set; }
+
+    private bool _showPrestigeConfirm;
+    private string? _prestigeErrorMessage;
+
+    private void OpenPrestigeConfirm()
+    {
+        if (!Engine.CanPrestige)
+        {
+            return;
+        }
+
+        _prestigeErrorMessage = null;
+        _showPrestigeConfirm = true;
+    }
+
+    private async Task ConfirmPrestigeAsync()
+    {
+        _showPrestigeConfirm = false;
+        var success = await Engine.PrestigeAsync();
+        _prestigeErrorMessage = success
+            ? null
+            : "Prestige fehlgeschlagen - bitte Seite neu laden und erneut versuchen.";
+        if (success && Engine.IsRetired)
+        {
+            await OnRetired.InvokeAsync();
+        }
+    }
+
+    private void ToggleExpanded(string businessId)
+    {
+        if (!_expanded.Add(businessId))
+        {
+            _expanded.Remove(businessId);
+        }
+    }
+
+    private sealed record UnlockTier(int Threshold, bool IsSpeed, double Value, string? TargetBusinessName = null, string? TargetImagePath = null);
+
+    private static List<UnlockTier> BuildTiers(string businessId, IReadOnlyList<(int Threshold, double Multiplier)> profitTiers)
+    {
+        var speedThresholds = GameData.ExtraSpeedThresholds.TryGetValue(businessId, out var extra)
+            ? GameData.MilestoneThresholds.Concat(extra)
+            : GameData.MilestoneThresholds;
+        var speedTiers = speedThresholds.Select(t => new UnlockTier(t, true, 2));
+        var profit = profitTiers.Select(t => new UnlockTier(t.Threshold, false, t.Multiplier));
+
+        var cross = businessId == "ShakerStihl"
+            ? GameData.NewspaperCrossBonuses.SelectMany(kvp =>
+                kvp.Value.Select(t =>
+                {
+                    var target = GameData.GetBusiness(kvp.Key);
+                    return new UnlockTier(t.StihlOwnedThreshold, false, t.ProfitMultiplier, target.Name, target.ImagePath);
+                }))
+            : [];
+
+        return speedTiers.Concat(profit).Concat(cross).OrderBy(t => t.Threshold).ToList();
+    }
+
+    private static List<UnlockTier> BuildCapitalistTiers()
+    {
+        var speedTiers = GameData.CapitalistSpeedThresholds.Select(t => new UnlockTier(t, true, 2));
+        var profitTiers = GameData.CapitalistProfitThresholds.Select(t => new UnlockTier(t, false, 2));
+        return speedTiers.Concat(profitTiers).OrderBy(t => t.Threshold).ToList();
+    }
+
+    private const string TileBase = "flex flex-col items-center justify-center gap-1.5 rounded-[7px] border px-2 py-4";
+    private static string TileClass(bool achieved, bool isNext)
+    {
+        if (isNext)
+        {
+            return $"{TileBase} border-cartel-gold bg-cartel-gold/15 text-cartel-espresso animate-glow-pulse";
+        }
+
+        return achieved
+            ? $"{TileBase} border-cartel-agave/30 bg-cartel-agave/15 text-cartel-agave"
+            : $"{TileBase} border-cartel-ink/10 bg-black/[0.04] text-cartel-ink/50";
+    }
+
+    public void Dispose()
+    {
+        _liveRefreshTimer?.Dispose();
+    }
+}

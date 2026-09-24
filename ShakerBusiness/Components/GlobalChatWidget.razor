@@ -1,0 +1,356 @@
+@using ShakerBusiness.Services
+@implements IDisposable
+@inject GameEngineService Engine
+@inject GlobalChatService Chat
+@inject IJSRuntime JS
+
+<div id="shaker-phone-widget" class="fixed bottom-6 right-6 h-[72vh] max-h-[640px] z-[950] flex w-full max-w-[380px] select-none flex-col overflow-hidden rounded-[28px] border-4 border-cartel-espresso bg-cartel-ink shadow-[8px_8px_24px_rgba(0,0,0,0.35)] transition-opacity duration-300 @(_open ? "opacity-100" : "pointer-events-none opacity-0")">
+    <div id="shaker-phone-drag-handle" class="flex h-5 flex-shrink-0 cursor-grab items-center justify-center bg-cartel-ink active:cursor-grabbing" style="touch-action:none;">
+        <div class="h-1 w-14 rounded-full bg-black/50"></div>
+    </div>
+
+    <div class="flex flex-shrink-0 items-center justify-between px-4 pb-0.5 pt-1.5 text-[0.6rem] font-semibold tracking-wide @(_flashlightActive ? "bg-white text-white" : "text-cartel-cream/60")">
+        <span>@PhoneTime</span>
+        <div class="flex items-center gap-1.5">
+            <svg viewBox="0 0 16 12" class="h-2.5 w-3.5" fill="currentColor"><rect x="0" y="7" width="2.5" height="5" rx="0.5"/><rect x="4.5" y="5" width="2.5" height="7" rx="0.5"/><rect x="9" y="2.5" width="2.5" height="9.5" rx="0.5"/><rect x="13.5" y="0" width="2.5" height="12" rx="0.5"/></svg>
+            <svg viewBox="0 0 24 24" class="h-3 w-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M2 8.5a16 16 0 0 1 20 0"/><path d="M5.5 12.5a11 11 0 0 1 13 0"/><path d="M9 16.5a5.5 5.5 0 0 1 6 0"/><circle cx="12" cy="20" r="1" fill="currentColor" stroke="none"/></svg>
+            <svg viewBox="0 0 26 13" class="h-2.5 w-5"><rect x="0.5" y="0.5" width="21" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1"/><rect x="22.5" y="4" width="2" height="5" rx="1" fill="currentColor"/><rect x="2" y="2" width="15" height="9" rx="1.2" fill="currentColor"/></svg>
+        </div>
+    </div>
+    <div class="flex flex-shrink-0 items-center justify-between gap-2 px-4 pb-2 pt-1 @(_flashlightActive ? "bg-white" : "")">
+        <span class="font-display text-base tracking-wide @(_flashlightActive ? "text-white" : "text-cartel-gold")">@(_currentApp == PhoneApp.Home ? "Shaker Phone" : AppTitle(_currentApp))</span>
+        @if (!_flashlightActive)
+        {
+            <button class="text-cartel-cream/70 hover:text-cartel-cream" title="Ausschalten" @onclick="Toggle">
+                <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                    <path d="M12 3v8"/>
+                    <path d="M6.3 6.3a9 9 0 1 0 11.4 0"/>
+                </svg>
+            </button>
+        }
+    </div>
+
+    <div class="flex-1 overflow-hidden">
+        @if (_currentApp == PhoneApp.Snake)
+        {
+            <ShakerSnakeApp/>
+        }
+        else if (_currentApp == PhoneApp.Timberman)
+        {
+            <ShakerTimbermanApp/>
+        }
+        else if (_currentApp == PhoneApp.Twitch)
+        {
+            <TwitchApp/>
+        }
+        else if (_currentApp == PhoneApp.Contacts)
+        {
+            <ContactsApp InitialUserId="@_contactsInitialUserId"/>
+        }
+        else if (_currentApp == PhoneApp.Settings)
+        {
+            <SettingsApp OnHiddenChanged="OnHiddenChanged"/>
+        }
+        else if (_currentApp == PhoneApp.Flashlight)
+        {
+            <FlashlightApp OnActiveChanged="OnFlashlightActiveChanged"/>
+        }
+        else if (_currentApp == PhoneApp.Slots)
+        {
+            <SlotsApp/>
+        }
+        else if (_currentApp == PhoneApp.Chat)
+        {
+            <ShakerChatApp OnAvatarClicked="OpenContactFromChat" TimezoneOffsetMinutes="_timezoneOffsetMinutes"/>
+        }
+        else if (_currentApp == PhoneApp.Fishing)
+        {
+            <ShakerFishingApp/>
+        }
+        else
+        {
+            <div class="flex h-full flex-col">
+                <div class="relative flex-1 overflow-hidden bg-cartel-espresso">
+                    <img src="images/Shaker/ShakerBackground.jpg" alt="" class="pointer-events-none absolute inset-0 h-full w-full select-none object-cover opacity-70"/>
+                    <div class="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(43,26,15,0.3)_0%,rgba(43,26,15,0.7)_100%)]"></div>
+
+                    <div class="relative flex h-full flex-col">
+                        <div class="flex flex-shrink-0 flex-col items-center pb-5 pt-4 text-center">
+                            <span class="font-display text-[2.75rem] font-bold leading-none tracking-wide text-cartel-cream drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]">@PhoneTime</span>
+                            <span class="mt-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.18em] text-cartel-cream/55">@PhoneDate</span>
+                        </div>
+
+                        <div class="grid flex-1 grid-cols-3 content-start gap-x-4 gap-y-6 px-5">
+                            <button class="flex flex-col items-center gap-1.5" @onclick="() => SwitchApp(PhoneApp.Chat)">
+                                <div class="relative flex h-16 w-16 items-center justify-center rounded-[20px] bg-[linear-gradient(155deg,#f6d16a_0%,#e0a530_45%,#b8792a_100%)] shadow-[0_4px_10px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.35)]">
+                                    <svg viewBox="0 0 24 24" class="h-8 w-8 text-cartel-espresso" fill="currentColor">
+                                        <path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9l-4.4 3.3A1 1 0 0 1 3 19.5V5a1 1 0 0 1 1-1z"/>
+                                    </svg>
+                                    @if (_hasUnread)
+                                    {
+                                        <span class="absolute -right-1 -top-1 flex h-3.5 w-3.5">
+                                            <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-cartel-rust opacity-75"></span>
+                                            <span class="relative inline-flex h-3.5 w-3.5 rounded-full border-2 border-cartel-espresso bg-cartel-rust"></span>
+                                        </span>
+                                    }
+                                </div>
+                                <span class="text-[0.68rem] font-bold text-cartel-cream drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">Shakerchat</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1.5" @onclick="() => SwitchApp(PhoneApp.Snake)">
+                                <div class="h-16 w-16 overflow-hidden rounded-[20px] shadow-[0_4px_10px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.25)]">
+                                    <img src="images/businesses/Oli.png" alt="" class="h-full w-full object-cover"/>
+                                </div>
+                                <span class="text-[0.68rem] font-bold text-cartel-cream drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">ShakerSnake</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1.5" @onclick="() => SwitchApp(PhoneApp.Timberman)">
+                                <div class="h-16 w-16 overflow-hidden rounded-[20px] shadow-[0_4px_10px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.25)]">
+                                    <img src="images/businesses/ShakerStihl.png" alt="" class="h-full w-full object-cover"/>
+                                </div>
+                                <span class="text-[0.68rem] font-bold text-cartel-cream drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">ShakerTimber</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1.5" @onclick="() => SwitchApp(PhoneApp.Slots)">
+                                <div class="flex h-16 w-16 items-center justify-center rounded-[20px] bg-[linear-gradient(155deg,#c94b4b_0%,#8f2f2f_50%,#3a2417_100%)] shadow-[0_4px_10px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.2)]">
+                                    <span class="font-display text-base font-extrabold tracking-wide text-cartel-gold">777</span>
+                                </div>
+                                <span class="text-[0.68rem] font-bold text-cartel-cream drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">Oli's Slots</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1.5" @onclick="() => SwitchApp(PhoneApp.Fishing)">
+                                <div class="h-16 w-16 overflow-hidden rounded-[20px] shadow-[0_4px_10px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.25)]">
+                                    <img src="images/Shaker/ShakerFischer.png" alt="" class="h-full w-full object-cover"/>
+                                </div>
+                                <span class="text-[0.68rem] font-bold text-cartel-cream drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">ShakerFischer</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1.5" @onclick="() => SwitchApp(PhoneApp.Twitch)">
+                                <div class="flex h-16 w-16 items-center justify-center rounded-[20px] bg-[linear-gradient(155deg,#b18cff_0%,#9146ff_45%,#5c1fc7_100%)] shadow-[0_4px_10px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]">
+                                    <svg viewBox="0 0 24 24" class="h-8 w-8 text-white" fill="currentColor">
+                                        <path d="M4 2 2 7v13h6v2h4l2-2h4l4-4V2H4zm16 11-3 3h-4l-2 2v-2H7V4h13v9z"/>
+                                        <path d="M15 7h2v5h-2zm-5 0h2v5h-2z"/>
+                                    </svg>
+                                </div>
+                                <span class="text-[0.68rem] font-bold text-cartel-cream drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">Twitch</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1.5" @onclick="() => SwitchApp(PhoneApp.Contacts)">
+                                <div class="flex h-16 w-16 items-center justify-center rounded-[20px] bg-[linear-gradient(155deg,#6fb3d9_0%,#3d84ab_45%,#1f4f68_100%)] shadow-[0_4px_10px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]">
+                                    <svg viewBox="0 0 24 24" class="h-8 w-8 text-white" fill="currentColor">
+                                        <circle cx="12" cy="8" r="4"/>
+                                        <path d="M4 20c0-4.4 3.6-8 8-8s8 3.6 8 8v1H4v-1z"/>
+                                    </svg>
+                                </div>
+                                <span class="text-[0.68rem] font-bold text-cartel-cream drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">Kontakte</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1.5" @onclick="() => SwitchApp(PhoneApp.Settings)">
+                                <div class="flex h-16 w-16 items-center justify-center rounded-[20px] bg-[linear-gradient(155deg,#9a9a9a_0%,#6b6b6b_50%,#3a3a3a_100%)] shadow-[0_4px_10px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.3)]">
+                                    <svg viewBox="0 0 24 24" class="h-8 w-8 text-white" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                        <line x1="4" y1="6" x2="20" y2="6"/><circle cx="9" cy="6" r="2" fill="currentColor" stroke="none"/>
+                                        <line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/>
+                                        <line x1="4" y1="18" x2="20" y2="18"/><circle cx="7" cy="18" r="2" fill="currentColor" stroke="none"/>
+                                    </svg>
+                                </div>
+                                <span class="text-[0.68rem] font-bold text-cartel-cream drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">Einstellungen</span>
+                            </button>
+                            <button class="flex flex-col items-center gap-1.5" @onclick="() => SwitchApp(PhoneApp.Flashlight)">
+                                <div class="flex h-16 w-16 items-center justify-center rounded-[20px] bg-[linear-gradient(155deg,#4a4a4a_0%,#1a1a1a_60%,#000000_100%)] shadow-[0_4px_10px_rgba(0,0,0,0.4),inset_0_1px_0_rgba(255,255,255,0.25)]">
+                                    <svg viewBox="0 0 24 24" class="h-8 w-8 text-white" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                        <circle cx="12" cy="12" r="5"/>
+                                        <line x1="12" y1="1" x2="12" y2="3"/>
+                                        <line x1="12" y1="21" x2="12" y2="23"/>
+                                        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                                        <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                                        <line x1="1" y1="12" x2="3" y2="12"/>
+                                        <line x1="21" y1="12" x2="23" y2="12"/>
+                                        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                                        <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                                    </svg>
+                                </div>
+                                <span class="text-[0.68rem] font-bold text-cartel-cream drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]">Taschenlampe</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+
+    <div class="flex h-14 flex-shrink-0 items-center justify-center bg-cartel-ink">
+        <button class="h-9 w-9 rounded-full border-2 border-cartel-cream/50 transition-colors hover:border-cartel-gold" title="Home" @onclick="() => SwitchApp(PhoneApp.Home)"></button>
+    </div>
+</div>
+
+@code {
+    private enum PhoneApp { Home, Chat, Snake, Timberman, Slots, Twitch, Contacts, Settings, Flashlight, Fishing }
+
+    private bool _open;
+    private PhoneApp _currentApp = PhoneApp.Home;
+    private System.Threading.Timer? _decayTimer;
+    private DateTime _lastSeenUtc;
+    private bool _hasUnread;
+    private string? _contactsInitialUserId;
+    private bool _flashlightActive;
+
+    private int? _timezoneOffsetMinutes;
+
+    private DateTime ClientNow => _timezoneOffsetMinutes is { } offset
+        ? DateTime.UtcNow.AddMinutes(-offset)
+        : DateTime.Now;
+
+    private string PhoneTime => ClientNow.ToString("HH:mm");
+    private string PhoneDate => ClientNow.ToString("dddd, d. MMMM", new System.Globalization.CultureInfo("de-DE"));
+
+    [Parameter]
+    public EventCallback<bool> OnUnreadChanged { get; set; }
+
+    [Parameter]
+    public EventCallback OnHiddenChanged { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _lastSeenUtc = DateTime.UtcNow;
+        Chat.OnChanged += HandleChanged;
+        await Chat.EnsureBannedListLoadedAsync();
+        _decayTimer = new System.Threading.Timer(_ => InvokeAsync(async () =>
+        {
+            await UpdateUnreadAsync();
+            if (_open)
+            {
+                StateHasChanged();
+            }
+        }), null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                _timezoneOffsetMinutes = await JS.InvokeAsync<int>("shakerEffects.getTimezoneOffsetMinutes");
+                StateHasChanged();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            try
+            {
+                await JS.InvokeVoidAsync("shakerPhoneDrag.init", "shaker-phone-widget", "shaker-phone-drag-handle");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+    }
+
+    public bool IsOpen => _open;
+
+    public void Toggle()
+    {
+        _open = !_open;
+        _currentApp = PhoneApp.Home;
+        _flashlightActive = false;
+
+        if (!_open)
+        {
+            _ = InvokeJsSafeAsync("shakerPhoneDrag.reset");
+        }
+
+        _ = UpdateUnreadAsync();
+        StateHasChanged();
+    }
+
+    private async Task InvokeJsSafeAsync(string identifier)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(identifier);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private static string AppTitle(PhoneApp app) => app switch
+    {
+        PhoneApp.Chat => "Shakerchat",
+        PhoneApp.Snake => "ShakerSnake",
+        PhoneApp.Timberman => "ShakerTimber",
+        PhoneApp.Slots => "Oli's Slots",
+        PhoneApp.Twitch => "Twitch",
+        PhoneApp.Contacts => "Kontakte",
+        PhoneApp.Settings => "Einstellungen",
+        PhoneApp.Flashlight => "Taschenlampe",
+        PhoneApp.Fishing => "ShakerAngeln",
+        _ => "",
+    };
+
+    public void OpenContact(string twitchUserId)
+    {
+        _flashlightActive = false;
+        _open = true;
+        _currentApp = PhoneApp.Contacts;
+        _contactsInitialUserId = twitchUserId;
+        _ = UpdateUnreadAsync();
+        StateHasChanged();
+    }
+
+    private void OpenContactFromChat(string? twitchUserId)
+    {
+        if (!string.IsNullOrEmpty(twitchUserId))
+        {
+            OpenContact(twitchUserId);
+        }
+    }
+
+    private void OnFlashlightActiveChanged(bool active)
+    {
+        _flashlightActive = active;
+        StateHasChanged();
+    }
+
+    private void SwitchApp(PhoneApp app)
+    {
+        _flashlightActive = false;
+        _currentApp = app;
+        if (app == PhoneApp.Contacts)
+        {
+            _contactsInitialUserId = null;
+        }
+
+        _ = UpdateUnreadAsync();
+        StateHasChanged();
+    }
+
+    private async Task UpdateUnreadAsync()
+    {
+        bool unread;
+        if (_open && _currentApp == PhoneApp.Chat)
+        {
+            _lastSeenUtc = DateTime.UtcNow;
+            unread = false;
+        }
+        else
+        {
+            unread = Chat.GetMessages().Any(m => m.SentUtc > _lastSeenUtc && m.TwitchUserId != Engine.CurrentTwitchUserId);
+        }
+
+        if (unread != _hasUnread)
+        {
+            _hasUnread = unread;
+            await OnUnreadChanged.InvokeAsync(_hasUnread);
+        }
+    }
+
+    private void HandleChanged()
+    {
+        InvokeAsync(async () =>
+        {
+            await UpdateUnreadAsync();
+            StateHasChanged();
+        });
+    }
+
+    public void Dispose()
+    {
+        Chat.OnChanged -= HandleChanged;
+        _decayTimer?.Dispose();
+    }
+}

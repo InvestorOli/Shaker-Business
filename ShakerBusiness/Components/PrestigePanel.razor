@@ -1,0 +1,107 @@
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@inject GameEngineService Engine
+@inject IJSRuntime JS
+
+@{
+    var rows = Engine.GetPrestigeUpgradeRows();
+    var active = rows.Where(r => r.Unlocked && r.Purchased).ToList();
+    var totalMultiplier = active.Aggregate(1.0, (product, r) => product * r.Perk.Upgrade.ProfitMultiplier);
+}
+
+<div class="mx-auto flex max-w-[1100px] flex-col gap-2.5">
+    <div class="flex flex-col gap-1 rounded-[7px] bg-black/20 px-4 py-3 text-sm text-cartel-cream/80">
+        <span class="font-bold text-cartel-gold-light">Olis Geheimbunker</span>
+        <span>
+            Psst, amigo! Du bist nur hier drin, weil du Prestige hast. Hier unten lagert das Zeug, von dem das Finanzamt NIE erfahren darf.
+        </span>
+        <span>
+            Für die ersten @GameData.PrestigeUpgradeCount Prestige-Stufen leg ich dir je ein Paket auf den Tisch: Profit auf alle Businesses - gratis, ohne Rechnung, ohne Quittung.
+            Das erste Paket ist das dickste, danach wird's immer kleinere Ware. Der Laden muss ja auch noch laufen.
+            Nach jedem Reset oder Prestige macht die Razzia den Laden leer - dann kommst du einfach wieder runter und holst dir alles neu.
+            Und wenn einer fragt: Du warst nie hier. Capisce?
+        </span>
+        <span class="font-bold text-cartel-agave">Unterm Tisch aktiv: @active.Count von @rows.Count(r => r.Unlocked) Paketen = x@(GameData.FormatMultiplier(totalMultiplier)) Profit</span>
+    </div>
+
+    @if (Engine.HasPrestigeUpgradeToClaim)
+    {
+        <button class="no-click-sound mb-1 rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-4 py-2.5 font-bold text-white transition-transform duration-100 active:translate-y-0.5" @onclick="ClaimAllAsync">
+            Alle Pakete unterm Tisch holen
+        </button>
+    }
+
+    @foreach (var (perk, unlocked, purchased) in rows)
+    {
+        <div class="@RowClass(purchased && unlocked, !unlocked)">
+            <img src="images/businesses/Oli.png" alt="" class="h-12 w-12 flex-shrink-0 rounded-full border-2 border-cartel-espresso object-cover sm:h-16 sm:w-16"/>
+            <div class="flex min-w-0 flex-1 basis-[calc(100%-64px)] flex-col gap-1 sm:basis-auto">
+                <span class="text-base font-bold text-cartel-espresso">@perk.Upgrade.Name</span>
+                <span class="text-sm text-cartel-ink/60">
+                    @if (unlocked)
+                    {
+                        @($"x{GameData.FormatMultiplier(perk.Upgrade.ProfitMultiplier)} Profit auf alle Businesses - schwarz, gratis, ohne Beleg")
+                    }
+                    else
+                    {
+                        @($"Gesperrt, amigo - der Türsteher lässt dich erst ab Prestige {perk.PrestigeLevel} rein")
+                    }
+                </span>
+            </div>
+
+            @if (unlocked && purchased)
+            {
+                <span class="flex-shrink-0 rounded-[7px] bg-cartel-agave px-3 py-1.5 text-sm font-bold text-white">Unterm Tisch</span>
+            }
+            else
+            {
+                <button class="@ClaimBtnClass(!unlocked)" disabled="@(!unlocked)" @onclick="() => ClaimAsync(perk.Upgrade.Id)">
+                    Heimlich holen
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private async Task ClaimAsync(string upgradeId)
+    {
+        if (await Engine.BuyPrestigeUpgradeAsync(upgradeId))
+        {
+            await PlayJaAsync();
+        }
+    }
+
+    private async Task ClaimAllAsync()
+    {
+        if (await Engine.BuyAllPrestigeUpgradesAsync() > 0)
+        {
+            await PlayJaAsync();
+        }
+    }
+
+    private async Task PlayJaAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("shakerAudio.playJa");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private const string RowBase = "flex flex-wrap items-center gap-5 rounded-[7px] bg-cartel-cream px-5 py-4 shadow-[0_2px_4px_rgba(0,0,0,0.25)] sm:flex-nowrap";
+    private static string RowClass(bool purchased, bool locked)
+    {
+        var classes = RowBase;
+        if (locked) classes += " opacity-55 grayscale-[0.4]";
+        if (purchased) classes += " border-2 border-cartel-agave";
+        return classes;
+    }
+
+    private const string ClaimBtnBase = "no-click-sound box-border rounded-[7px] px-5 py-3 text-base font-bold text-white transition-transform duration-100 active:translate-y-0.5 sm:w-auto";
+    private static string ClaimBtnClass(bool disabled) => disabled
+        ? $"{ClaimBtnBase} bg-[#a8a196] cursor-not-allowed"
+        : $"{ClaimBtnBase} bg-gradient-to-b from-cartel-gold to-cartel-rust cursor-pointer";
+}

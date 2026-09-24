@@ -1,0 +1,1202 @@
+@page "/admintool"
+@using System.Numerics
+@using ShakerBusiness.Data
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@inject GameEngineService Engine
+@inject AdminToolService AdminToolSvc
+@inject NavigationManager Navigation
+
+<PageTitle>Admin Tool</PageTitle>
+
+@if (!_authorized)
+{
+    <div class="flex min-h-[60vh] items-center justify-center text-lg text-cartel-cream/90">Lädt…</div>
+}
+else
+{
+    <div class="mx-auto flex max-w-[1100px] flex-col gap-10 px-4 py-8 text-cartel-cream">
+        <h1 class="m-0 font-display text-2xl tracking-wide text-cartel-gold">Admin Tool</h1>
+
+        <section class="flex flex-col gap-3 rounded-[7px] bg-black/20 p-5">
+            <h2 class="m-0 font-display text-lg text-cartel-gold">User Stats bearbeiten</h2>
+
+            <div class="flex gap-2">
+                <input class="flex-1 rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-3 py-2 text-sm text-cartel-ink" placeholder="TwitchUserId oder Anzeigename" @bind="_searchQuery" @bind:event="oninput" @onkeydown="OnSearchKeyDown"/>
+                <button class="rounded-[7px] bg-cartel-gold px-4 py-2 text-sm font-bold text-cartel-espresso" @onclick="SearchAsync">Suchen</button>
+            </div>
+
+            @if (_searchResults.Count > 0)
+            {
+                <div class="flex flex-col gap-1.5">
+                    @foreach (var acc in _searchResults)
+                    {
+                        <button class="flex items-center justify-between rounded-[7px] bg-cartel-cream/10 px-3 py-2 text-left text-sm hover:bg-cartel-cream/20" @onclick="() => SelectAccount(acc)">
+                            <span class="flex items-center gap-2">
+                                @acc.DisplayName
+                                @if (AdminToolSvc.IsUserOnline(acc.TwitchUserId))
+                                {
+                                    <span class="rounded-[7px] bg-cartel-agave px-1.5 py-0.5 text-[0.6rem] font-bold uppercase text-white">Online</span>
+                                }
+                                else
+                                {
+                                    <span class="rounded-[7px] bg-black/30 px-1.5 py-0.5 text-[0.6rem] font-bold uppercase text-cartel-cream/60">Offline</span>
+                                }
+                            </span>
+                            <span class="text-xs text-cartel-cream/50">@acc.TwitchUserId</span>
+                        </button>
+                    }
+                </div>
+            }
+
+            @if (_selectedAccount is not null)
+            {
+                <div class="mt-2 flex flex-col gap-3 rounded-[7px] border border-cartel-gold/40 bg-black/20 p-4">
+                    <div class="flex items-center justify-between">
+                        <span class="font-bold text-cartel-gold">@_selectedAccount.DisplayName (@_selectedAccount.TwitchUserId)</span>
+                        @if (AdminToolSvc.IsUserOnline(_selectedAccount.TwitchUserId))
+                        {
+                            <span class="rounded-[7px] bg-cartel-agave px-2 py-0.5 text-xs font-bold uppercase text-white">Online &middot; Sitzung wird beim Speichern beendet</span>
+                        }
+                        else
+                        {
+                            <span class="rounded-[7px] bg-black/30 px-2 py-0.5 text-xs font-bold uppercase text-cartel-cream/60">Offline &middot; direkt in DB</span>
+                        }
+                    </div>
+
+                    <div class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                        Durchgespielt
+                        <span class="font-bold text-cartel-cream/90">@_selectedUnlockProgressPercent.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture)%</span>
+                    </div>
+
+                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                        Cash
+                        <div class="flex gap-2">
+                            <input class="min-w-0 flex-1 rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-3 py-2 font-mono text-sm text-cartel-ink" @bind="_cashInput"/>
+                            <select class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" @bind="_cashSuffixIndex">
+                                <option value="-1">Roh (exakte Zahl)</option>
+                                @for (var i = 0; i < BigNumberFormatter.Suffixes.Length; i++)
+                                {
+                                    <option value="@i">@BigNumberFormatter.Suffixes[i]</option>
+                                }
+                            </select>
+                        </div>
+                        <span class="text-cartel-cream/40">= @PreviewValue(_cashInput, _cashSuffixIndex)</span>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                        Lifetime-Umsatz
+                        <div class="flex gap-2">
+                            <input class="min-w-0 flex-1 rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-3 py-2 font-mono text-sm text-cartel-ink" @bind="_lifetimeInput"/>
+                            <select class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" @bind="_lifetimeSuffixIndex">
+                                <option value="-1">Roh (exakte Zahl)</option>
+                                @for (var i = 0; i < BigNumberFormatter.Suffixes.Length; i++)
+                                {
+                                    <option value="@i">@BigNumberFormatter.Suffixes[i]</option>
+                                }
+                            </select>
+                        </div>
+                        <span class="text-cartel-cream/40">= @PreviewValue(_lifetimeInput, _lifetimeSuffixIndex)</span>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                        Anteile (AngelCount)
+                        <div class="flex gap-2">
+                            <input class="min-w-0 flex-1 rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-3 py-2 font-mono text-sm text-cartel-ink" @bind="_angelInput"/>
+                            <select class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" @bind="_angelSuffixIndex">
+                                <option value="-1">Roh (exakte Zahl)</option>
+                                @for (var i = 0; i < BigNumberFormatter.Suffixes.Length; i++)
+                                {
+                                    <option value="@i">@BigNumberFormatter.Suffixes[i]</option>
+                                }
+                            </select>
+                        </div>
+                        <span class="text-cartel-cream/40">= @PreviewValue(_angelInput, _angelSuffixIndex)</span>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                        EarningsAtLastReset
+                        <div class="flex gap-2">
+                            <input class="min-w-0 flex-1 rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-3 py-2 font-mono text-sm text-cartel-ink" @bind="_earningsAtLastResetInput"/>
+                            <select class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" @bind="_earningsAtLastResetSuffixIndex">
+                                <option value="-1">Roh (exakte Zahl)</option>
+                                @for (var i = 0; i < BigNumberFormatter.Suffixes.Length; i++)
+                                {
+                                    <option value="@i">@BigNumberFormatter.Suffixes[i]</option>
+                                }
+                            </select>
+                        </div>
+                        <span class="text-cartel-cream/40">= @PreviewValue(_earningsAtLastResetInput, _earningsAtLastResetSuffixIndex)</span>
+                    </label>
+                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                        Oli Extra-Prozent
+                        <input class="min-w-0 rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-3 py-2 font-mono text-sm text-cartel-ink" type="number" step="1" @bind="_oliModifierPercentInput"/>
+                        <span class="text-cartel-cream/40">
+                            Oli-Chat-Runde des Spielers: <span class="font-bold text-cartel-cream/70">@_selectedAccount.OliChatRound / 3</span>
+                            @(_selectedAccount.OliChatRound >= 3 ? " · Deal steht, Prozent wirkt sich aus." : " · Deal steht noch nicht, Prozent wirkt sich erst ab Runde 3 aus.")
+                        </span>
+                    </label>
+                    <div class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                        Reset-Zähler (nicht editierbar)
+                        <span class="font-bold text-cartel-cream/90">@_selectedAccount.ResetCount</span>
+                    </div>
+                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                        Prestige-Zähler
+                        <input class="min-w-0 rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-3 py-2 font-mono text-sm text-cartel-ink" type="number" step="1" min="0" @bind="_prestigeCountInput"/>
+                    </label>
+
+                    <button class="self-start rounded-[7px] bg-cartel-crimson px-4 py-2 text-sm font-bold text-white" @onclick="ApplyEditAsync">Anwenden</button>
+
+                    @if (_editResultMessage is not null)
+                    {
+                        <p class="m-0 text-sm text-cartel-agave">@_editResultMessage</p>
+                    }
+
+                    <div class="mt-2 border-t border-cartel-cream/10 pt-3">
+                        <span class="text-xs font-bold uppercase tracking-wide text-cartel-cream/60">Business-Level</span>
+                        <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                            @foreach (var business in GameData.Businesses)
+                            {
+                                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                                    @business.Name
+                                    <input class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 font-mono text-sm text-cartel-ink" value="@GetBusinessLevelInput(business.Id)" @onchange="e => OnBusinessLevelChanged(business.Id, e)"/>
+                                </label>
+                            }
+                        </div>
+                        <button class="mt-3 self-start rounded-[7px] bg-cartel-crimson px-4 py-2 text-sm font-bold text-white" @onclick="ApplyBusinessLevelsAsync">Business-Level anwenden</button>
+
+                        @if (_businessEditResultMessage is not null)
+                        {
+                            <p class="m-0 mt-2 text-sm text-cartel-agave">@_businessEditResultMessage</p>
+                        }
+                    </div>
+
+                    <div class="mt-2 border-t border-cartel-cream/10 pt-3">
+                        <span class="text-xs font-bold uppercase tracking-wide text-cartel-cream/60">Moderator-Status</span>
+                        <div class="mt-2 flex items-center gap-3">
+                            <span class="text-sm">
+                                Aktuell:
+                                @if (_selectedAccount.IsModerator)
+                                {
+                                    <span class="rounded-[7px] bg-cartel-gold px-2 py-0.5 text-xs font-bold uppercase text-cartel-espresso">Moderator</span>
+                                }
+                                else
+                                {
+                                    <span class="rounded-[7px] bg-black/30 px-2 py-0.5 text-xs font-bold uppercase text-cartel-cream/60">Kein Moderator</span>
+                                }
+                            </span>
+                            <button class="rounded-[7px] bg-cartel-agave px-3 py-1.5 text-xs font-bold text-white" @onclick="() => ApplyModeratorAsync(true)">Mod geben</button>
+                            <button class="rounded-[7px] bg-cartel-crimson px-3 py-1.5 text-xs font-bold text-white" @onclick="() => ApplyModeratorAsync(false)">Mod entnehmen</button>
+                        </div>
+
+                        @if (_moderatorResultMessage is not null)
+                        {
+                            <p class="m-0 mt-2 text-sm text-cartel-agave">@_moderatorResultMessage</p>
+                        }
+                    </div>
+
+                    <div class="mt-2 border-t border-cartel-cream/10 pt-3">
+                        <span class="text-xs font-bold uppercase tracking-wide text-cartel-cream/60">Angeln</span>
+                        @if (_fishingInfo is null)
+                        {
+                            <p class="m-0 mt-2 text-sm text-cartel-cream/50">Lädt…</p>
+                        }
+                        else
+                        {
+                            <p class="m-0 mt-1 text-xs text-cartel-cream/50">Level @_fishingInfo.FishingLevel &middot; Köder: @(_fishingInfo.ActiveBaitId ?? "keiner") &middot; @_fishingInfo.CatchCount Fänge</p>
+                            <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                                    Perlen
+                                    <input class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 font-mono text-sm text-cartel-ink" @bind="_fishingPearlsInput"/>
+                                </label>
+                                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                                    Rutenlevel (1-@FishingData.MaxRodLevel)
+                                    <input class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 font-mono text-sm text-cartel-ink" @bind="_fishingRodLevelInput"/>
+                                </label>
+                                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                                    Angel-XP
+                                    <input class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 font-mono text-sm text-cartel-ink" @bind="_fishingXpInput"/>
+                                </label>
+                            </div>
+                            <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                @foreach (var bait in FishingData.Baits)
+                                {
+                                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                                        @bait.Name (Anzahl)
+                                        <input class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 font-mono text-sm text-cartel-ink" value="@GetFishingBaitInput(bait.Id)" @oninput="e => SetFishingBaitInput(bait.Id, e.Value?.ToString() ?? string.Empty)"/>
+                                    </label>
+                                }
+                            </div>
+                            <button class="mt-3 self-start rounded-[7px] bg-cartel-crimson px-4 py-2 text-sm font-bold text-white" @onclick="ApplyFishingAsync">Angel-Daten anwenden</button>
+
+                            @if (_fishingResultMessage is not null)
+                            {
+                                <p class="m-0 mt-2 text-sm text-cartel-agave">@_fishingResultMessage</p>
+                            }
+
+                            <div class="mt-3 border-t border-cartel-cream/10 pt-3">
+                                <span class="text-xs font-bold uppercase tracking-wide text-cartel-cream/60">Fisch ins Inventar legen</span>
+                                <div class="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                                        Fisch
+                                        <select class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" @bind="_giveFishId">
+                                            @foreach (var fish in FishingData.Fish)
+                                            {
+                                                <option value="@fish.Id">@fish.Name (@fish.Rarity)</option>
+                                            }
+                                        </select>
+                                    </label>
+                                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                                        Level (1-@FishingData.MaxFishLevel)
+                                        <input class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 font-mono text-sm text-cartel-ink" @bind="_giveFishLevelInput"/>
+                                    </label>
+                                    <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                                        Anzahl
+                                        <input class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 font-mono text-sm text-cartel-ink" @bind="_giveFishQuantityInput"/>
+                                    </label>
+                                </div>
+                                <button class="mt-3 self-start rounded-[7px] bg-cartel-crimson px-4 py-2 text-sm font-bold text-white" @onclick="GiveFishAsync">Fisch geben</button>
+
+                                @if (_giveFishResultMessage is not null)
+                                {
+                                    <p class="m-0 mt-2 text-sm text-cartel-agave">@_giveFishResultMessage</p>
+                                }
+                            </div>
+
+                            @if (_fishingInfo.Quests.Count > 0)
+                            {
+                                <div class="mt-3 border-t border-cartel-cream/10 pt-2">
+                                    <span class="text-[0.65rem] font-bold uppercase tracking-wide text-cartel-cream/50">Aktueller Quest-Batch</span>
+                                    <p class="m-0 text-[0.65rem] text-cartel-cream/50">Erstellt: @_fishingInfo.Quests[0].BatchUtc.ToString("dd.MM. HH:mm:ss") UTC &middot; Neue Quests in @FormatQuestCountdown(_fishingInfo.Quests[0].TimeUntilRefresh)</p>
+                                    <ul class="m-0 mt-1 flex list-none flex-col gap-0.5 p-0 text-[0.65rem] text-cartel-cream/70">
+                                        @foreach (var quest in _fishingInfo.Quests)
+                                        {
+                                            <li>@(quest.Completed ? "✓" : "○") @quest.FishId</li>
+                                        }
+                                    </ul>
+                                </div>
+                            }
+                        }
+                    </div>
+                </div>
+            }
+        </section>
+
+        <section class="flex flex-col gap-3 rounded-[7px] bg-black/20 p-5">
+            <h2 class="m-0 font-display text-lg text-cartel-gold">Angel-Hotspot</h2>
+
+            @if (_currentHotspots.Count > 0)
+            {
+                <ul class="m-0 flex list-none flex-col gap-0.5 p-0 text-sm text-cartel-cream/70">
+                    @foreach (var hotspot in _currentHotspots)
+                    {
+                        <li>Aktiv: <span class="font-bold text-cartel-cream">@hotspot.SpotName</span> &middot; <span class="font-bold text-cartel-cream">@hotspot.FishName</span> (@hotspot.Rarity) &middot; noch @FormatQuestCountdown(hotspot.TimeRemaining)</li>
+                    }
+                </ul>
+            }
+            else
+            {
+                <p class="m-0 text-sm text-cartel-cream/50">Kein Hotspot aktiv.</p>
+            }
+
+            <div class="flex flex-wrap items-end gap-2">
+                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                    Spot
+                    <select class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" @bind="_hotspotSpotId">
+                        @foreach (var spot in FishingData.FishingSpots)
+                        {
+                            <option value="@spot.Id">@spot.Name</option>
+                        }
+                    </select>
+                </label>
+                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                    Fisch
+                    <select class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" @bind="_hotspotFishId">
+                        @foreach (var fish in FishingData.Fish)
+                        {
+                            <option value="@fish.Id">@fish.Name (@fish.Rarity)</option>
+                        }
+                    </select>
+                </label>
+                <button class="rounded-[7px] bg-cartel-gold px-4 py-2 text-sm font-bold text-cartel-espresso" @onclick="TriggerHotspotAsync">Hotspot auslösen</button>
+            </div>
+
+            @if (_hotspotResultMessage is not null)
+            {
+                <p class="m-0 text-sm text-cartel-agave">@_hotspotResultMessage</p>
+            }
+        </section>
+
+        <section class="flex flex-col gap-3 rounded-[7px] bg-black/20 p-5">
+            <h2 class="m-0 font-display text-lg text-cartel-gold">Globaler Umsatz-Boost</h2>
+
+            @if (_boostActive)
+            {
+                <p class="m-0 text-sm text-cartel-cream/70">Aktiv: <span class="font-bold text-cartel-cream">x@(_boostCurrentMultiplier.ToString("0.##"))</span> &middot; noch @FormatBoostCountdown()</p>
+            }
+            else
+            {
+                <p class="m-0 text-sm text-cartel-cream/50">Kein Boost aktiv.</p>
+            }
+
+            <div class="flex flex-wrap items-end gap-2">
+                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                    Multiplikator
+                    <input class="w-24 rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" type="number" step="0.1" min="1.1" max="2.5" @bind="_boostMultiplierInput"/>
+                </label>
+                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                    Minuten
+                    <input class="w-24 rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" type="number" step="1" min="1" @bind="_boostMinutesInput"/>
+                </label>
+                <button class="rounded-[7px] bg-cartel-gold px-4 py-2 text-sm font-bold text-cartel-espresso" @onclick="StartBoostAsync">Boost starten</button>
+                <button class="rounded-[7px] bg-cartel-crimson px-4 py-2 text-sm font-bold text-white" @onclick="StopBoostAsync" disabled="@(!_boostActive)">Boost beenden</button>
+            </div>
+
+            @if (_boostResultMessage is not null)
+            {
+                <p class="m-0 text-sm text-cartel-agave">@_boostResultMessage</p>
+            }
+        </section>
+
+        <section class="flex flex-col gap-3 rounded-[7px] bg-black/20 p-5">
+            <h2 class="m-0 font-display text-lg text-cartel-gold">Wartungsmodus</h2>
+
+            @if (_maintenanceModeEnabled)
+            {
+                <p class="m-0 text-sm text-cartel-crimson">Aktiv: Nur Dev-Accounts können das Spiel gerade benutzen, alle anderen sehen eine Wartungsseite.</p>
+            }
+            else
+            {
+                <p class="m-0 text-sm text-cartel-cream/50">Inaktiv: Das Spiel läuft normal für alle.</p>
+            }
+
+            <div class="flex flex-wrap items-end gap-2">
+                <button class="rounded-[7px] bg-cartel-gold px-4 py-2 text-sm font-bold text-cartel-espresso" @onclick="() => SetMaintenanceModeAsync(true)" disabled="@_maintenanceModeEnabled">Wartungsmodus aktivieren</button>
+                <button class="rounded-[7px] bg-cartel-crimson px-4 py-2 text-sm font-bold text-white" @onclick="() => SetMaintenanceModeAsync(false)" disabled="@(!_maintenanceModeEnabled)">Wartungsmodus deaktivieren</button>
+            </div>
+
+            @if (_maintenanceModeResultMessage is not null)
+            {
+                <p class="m-0 text-sm text-cartel-agave">@_maintenanceModeResultMessage</p>
+            }
+        </section>
+
+        <section class="flex flex-col gap-3 rounded-[7px] bg-black/20 p-5">
+            <h2 class="m-0 font-display text-lg text-cartel-gold">Spielende</h2>
+
+            @if (_gameEndEnabled)
+            {
+                <p class="m-0 text-sm text-cartel-crimson">Aktiv: Das Spiel endet am @_gameEndCurrentLocalText. Ab dann kann niemand mehr spielen, und Spieler mit Fortschritt können sich eine Urkunde herunterladen.</p>
+            }
+            else
+            {
+                <p class="m-0 text-sm text-cartel-cream/50">Inaktiv: Das Spiel läuft normal weiter, es gibt kein festes Ende.</p>
+            }
+
+            <div class="flex flex-wrap items-end gap-2">
+                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                    Datum und Uhrzeit (deutsche Zeit)
+                    <input type="datetime-local" class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-2 text-sm text-cartel-ink" value="@_gameEndInput" @onchange="e => _gameEndInput = e.Value?.ToString() ?? string.Empty"/>
+                </label>
+                <button class="rounded-[7px] bg-cartel-gold px-4 py-2 text-sm font-bold text-cartel-espresso" @onclick="() => SetGameEndAsync(true)">Speichern &amp; aktivieren</button>
+                <button class="rounded-[7px] bg-cartel-crimson px-4 py-2 text-sm font-bold text-white" @onclick="() => SetGameEndAsync(false)" disabled="@(!_gameEndEnabled)">Deaktivieren</button>
+            </div>
+
+            @if (_gameEndResultMessage is not null)
+            {
+                <p class="m-0 text-sm text-cartel-agave">@_gameEndResultMessage</p>
+            }
+        </section>
+
+        <section class="flex flex-col gap-3 rounded-[7px] bg-black/20 p-5">
+            <div class="flex items-center justify-between">
+                <h2 class="m-0 font-display text-lg text-cartel-gold">Reset Logs</h2>
+                <button class="rounded-[7px] bg-cartel-cream/10 px-3 py-1.5 text-xs font-bold" @onclick="() => ReloadResetLogsAsync()">Aktualisieren</button>
+            </div>
+
+            <div class="flex flex-wrap items-end gap-2">
+                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                    Spieler
+                    <input class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 text-sm text-cartel-ink" placeholder="TwitchUserId oder Name" @bind="_resetLogUserFilter"/>
+                </label>
+                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                    Von
+                    <input type="date" class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 text-sm text-cartel-ink" @bind="_resetLogFromDate"/>
+                </label>
+                <label class="flex flex-col gap-1 text-xs text-cartel-cream/70">
+                    Bis
+                    <input type="date" class="rounded-[7px] border border-cartel-cream/20 bg-cartel-cream px-2 py-1.5 text-sm text-cartel-ink" @bind="_resetLogToDate"/>
+                </label>
+                <button class="rounded-[7px] bg-cartel-gold px-3 py-1.5 text-xs font-bold text-cartel-espresso" @onclick="ApplyResetLogFilterAsync">Filtern</button>
+                <button class="rounded-[7px] bg-cartel-cream/10 px-3 py-1.5 text-xs font-bold" @onclick="ClearResetLogFilterAsync">Zurücksetzen</button>
+            </div>
+
+            @if (_resetLogs.Count == 0)
+            {
+                <p class="m-0 text-sm text-cartel-cream/50">Keine Resets gefunden.</p>
+            }
+            else
+            {
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-[1320px] border-collapse text-xs">
+                        <thead>
+                        <tr class="text-left text-cartel-cream/50">
+                            <th class="px-2 py-1.5">Zeit (DE)</th>
+                            <th class="px-2 py-1.5">Spieler</th>
+                            <th class="px-2 py-1.5 whitespace-nowrap">Typ</th>
+                            <th class="px-2 py-1.5">Anteile vorher</th>
+                            <th class="px-2 py-1.5">Gewonnen</th>
+                            <th class="px-2 py-1.5">Oli-Bonus</th>
+                            <th class="px-2 py-1.5">Anteile nachher</th>
+                            <th class="px-2 py-1.5">Lifetime vorher</th>
+                            <th class="px-2 py-1.5">Cash vorher</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var log in _resetLogs)
+                        {
+                            <tr class="border-t border-cartel-cream/10">
+                                <td class="px-2 py-1.5 text-cartel-cream/70">@FormatGermanTime(log.TimestampUtc)</td>
+                                <td class="px-2 py-1.5 font-bold">@log.DisplayName</td>
+                                <td class="whitespace-nowrap px-2 py-1.5">
+                                    @if (log.IsPrestige)
+                                    {
+                                        <span class="whitespace-nowrap rounded-[7px] bg-cartel-gold/20 px-2 py-0.5 font-bold text-cartel-espresso">Prestige @log.PrestigeCountAfter</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-cartel-cream/50">Reset</span>
+                                    }
+                                </td>
+                                <td class="px-2 py-1.5" title="@log.AngelCountBefore">@FormatBig(log.AngelCountBefore)</td>
+                                <td class="px-2 py-1.5 text-cartel-agave" title="@log.AngelsGained">+@FormatBig(log.AngelsGained)</td>
+                                <td class="px-2 py-1.5">@FormatOliPercent(log.OliModifierPercentApplied)</td>
+                                <td class="px-2 py-1.5" title="@log.AngelCountAfter">@FormatBig(log.AngelCountAfter)</td>
+                                <td class="px-2 py-1.5" title="@log.LifetimeEarningsBefore">@FormatBig(log.LifetimeEarningsBefore)</td>
+                                <td class="px-2 py-1.5" title="@log.CashBefore">@FormatBig(log.CashBefore)</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="flex items-center justify-between text-xs text-cartel-cream/60">
+                    <span>Seite @_resetLogPage von @ResetLogTotalPages (@_resetLogTotalCount Einträge)</span>
+                    <div class="flex gap-2">
+                        <button class="rounded-[7px] bg-cartel-cream/10 px-3 py-1.5 font-bold disabled:opacity-30" disabled="@(_resetLogPage <= 1)" @onclick="() => ChangeResetLogPageAsync(-1)">&larr; Zurück</button>
+                        <button class="rounded-[7px] bg-cartel-cream/10 px-3 py-1.5 font-bold disabled:opacity-30" disabled="@(_resetLogPage >= ResetLogTotalPages)" @onclick="() => ChangeResetLogPageAsync(1)">Weiter &rarr;</button>
+                    </div>
+                </div>
+            }
+        </section>
+
+        <section class="flex flex-col gap-3 rounded-[7px] bg-black/20 p-5">
+            <h2 class="m-0 font-display text-lg text-cartel-gold">Admin-Änderungen Log</h2>
+
+            @if (_adminLogs.Count == 0)
+            {
+                <p class="m-0 text-sm text-cartel-cream/50">Noch keine manuellen Änderungen.</p>
+            }
+            else
+            {
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-[1000px] border-collapse text-xs">
+                        <thead>
+                        <tr class="text-left text-cartel-cream/50">
+                            <th class="px-2 py-1.5">Zeit</th>
+                            <th class="px-2 py-1.5">Ziel</th>
+                            <th class="px-2 py-1.5">Admin</th>
+                            <th class="px-2 py-1.5">Spieler war</th>
+                            <th class="px-2 py-1.5">Cash vorher &rarr; nachher</th>
+                            <th class="px-2 py-1.5">Lifetime vorher &rarr; nachher</th>
+                            <th class="px-2 py-1.5">Anteile vorher &rarr; nachher</th>
+                            <th class="px-2 py-1.5">Oli % vorher &rarr; nachher</th>
+                            <th class="px-2 py-1.5 whitespace-nowrap">Prestige vorher &rarr; nachher</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var log in _adminLogs)
+                        {
+                            <tr class="border-t border-cartel-cream/10">
+                                <td class="px-2 py-1.5 text-cartel-cream/70">@FormatGermanTime(log.TimestampUtc)</td>
+                                <td class="px-2 py-1.5 font-bold">@log.TargetDisplayName</td>
+                                <td class="px-2 py-1.5">@log.AdminDisplayName</td>
+                                <td class="px-2 py-1.5">@(log.AppliedLive ? "Online (Sitzung beendet)" : "Offline")</td>
+                                <td class="px-2 py-1.5">@FormatBig(log.CashBefore) &rarr; @FormatBig(log.CashAfter)</td>
+                                <td class="px-2 py-1.5">@FormatBig(log.LifetimeEarningsBefore) &rarr; @FormatBig(log.LifetimeEarningsAfter)</td>
+                                <td class="px-2 py-1.5">@FormatBig(log.AngelCountBefore) &rarr; @FormatBig(log.AngelCountAfter)</td>
+                                <td class="px-2 py-1.5">@FormatOliPercent(log.OliModifierPercentBefore) &rarr; @FormatOliPercent(log.OliModifierPercentAfter)</td>
+                                <td class="whitespace-nowrap px-2 py-1.5">@log.PrestigeCountBefore &rarr; @log.PrestigeCountAfter</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="flex flex-col gap-3 rounded-[7px] bg-black/20 p-5">
+            <h2 class="m-0 font-display text-lg text-cartel-gold">Admin Business-Level Log</h2>
+
+            @if (_businessLogs.Count == 0)
+            {
+                <p class="m-0 text-sm text-cartel-cream/50">Noch keine manuellen Business-Level-Änderungen.</p>
+            }
+            else
+            {
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-[700px] border-collapse text-xs">
+                        <thead>
+                        <tr class="text-left text-cartel-cream/50">
+                            <th class="px-2 py-1.5">Zeit (DE)</th>
+                            <th class="px-2 py-1.5">Ziel</th>
+                            <th class="px-2 py-1.5">Admin</th>
+                            <th class="px-2 py-1.5">Spieler war</th>
+                            <th class="px-2 py-1.5">Business</th>
+                            <th class="px-2 py-1.5">Level vorher &rarr; nachher</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var log in _businessLogs)
+                        {
+                            <tr class="border-t border-cartel-cream/10">
+                                <td class="px-2 py-1.5 text-cartel-cream/70">@FormatGermanTime(log.TimestampUtc)</td>
+                                <td class="px-2 py-1.5 font-bold">@log.TargetDisplayName</td>
+                                <td class="px-2 py-1.5">@log.AdminDisplayName</td>
+                                <td class="px-2 py-1.5">@(log.AppliedLive ? "Online (Sitzung beendet)" : "Offline")</td>
+                                <td class="px-2 py-1.5">@BusinessDisplayName(log.BusinessId)</td>
+                                <td class="px-2 py-1.5">@log.OwnedBefore &rarr; @log.OwnedAfter</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+
+        <section class="flex flex-col gap-3 rounded-[7px] bg-black/20 p-5">
+            <h2 class="m-0 font-display text-lg text-cartel-gold">Admin Moderator-Log</h2>
+
+            @if (_roleLogs.Count == 0)
+            {
+                <p class="m-0 text-sm text-cartel-cream/50">Noch keine Moderator-Änderungen.</p>
+            }
+            else
+            {
+                <div class="overflow-x-auto">
+                    <table class="w-full min-w-[700px] border-collapse text-xs">
+                        <thead>
+                        <tr class="text-left text-cartel-cream/50">
+                            <th class="px-2 py-1.5">Zeit (DE)</th>
+                            <th class="px-2 py-1.5">Ziel</th>
+                            <th class="px-2 py-1.5">Admin</th>
+                            <th class="px-2 py-1.5">Spieler war</th>
+                            <th class="px-2 py-1.5">Mod vorher &rarr; nachher</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        @foreach (var log in _roleLogs)
+                        {
+                            <tr class="border-t border-cartel-cream/10">
+                                <td class="px-2 py-1.5 text-cartel-cream/70">@FormatGermanTime(log.TimestampUtc)</td>
+                                <td class="px-2 py-1.5 font-bold">@log.TargetDisplayName</td>
+                                <td class="px-2 py-1.5">@log.AdminDisplayName</td>
+                                <td class="px-2 py-1.5">@(log.AppliedLive ? "Online (Sitzung beendet)" : "Offline")</td>
+                                <td class="px-2 py-1.5">@log.ModeratorBefore &rarr; @log.ModeratorAfter</td>
+                            </tr>
+                        }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </section>
+    </div>
+}
+
+@code {
+    private bool _authorized;
+    private string _searchQuery = "";
+    private List<PlayerAccount> _searchResults = [];
+    private PlayerAccount? _selectedAccount;
+    private double _selectedUnlockProgressPercent;
+    private string _cashInput = "";
+    private int _cashSuffixIndex = -1;
+    private string _lifetimeInput = "";
+    private int _lifetimeSuffixIndex = -1;
+    private string _angelInput = "";
+    private int _angelSuffixIndex = -1;
+    private string _earningsAtLastResetInput = "";
+    private int _earningsAtLastResetSuffixIndex = -1;
+    private double _oliModifierPercentInput;
+    private int _prestigeCountInput;
+    private string? _editResultMessage;
+    private Dictionary<string, string> _businessLevelInputs = [];
+    private string? _businessEditResultMessage;
+    private string? _moderatorResultMessage;
+    private FishingAdminInfoDto? _fishingInfo;
+    private string _fishingPearlsInput = "";
+    private string _fishingRodLevelInput = "";
+    private string _fishingXpInput = "";
+    private Dictionary<string, string> _fishingBaitInputs = [];
+    private string? _fishingResultMessage;
+    private string _giveFishId = FishingData.Fish[0].Id;
+    private string _giveFishLevelInput = "1";
+    private string _giveFishQuantityInput = "1";
+    private string? _giveFishResultMessage;
+    private IReadOnlyList<HotspotDto> _currentHotspots = [];
+    private string _hotspotSpotId = FishingData.FishingSpots[0].Id;
+    private string _hotspotFishId = FishingData.Fish[0].Id;
+    private string? _hotspotResultMessage;
+    private bool _boostActive;
+    private double _boostCurrentMultiplier = 1.0;
+    private DateTime? _boostExpiresUtc;
+    private double _boostMultiplierInput = 2;
+    private int _boostMinutesInput = 15;
+    private string? _boostResultMessage;
+    private bool _maintenanceModeEnabled;
+    private string? _maintenanceModeResultMessage;
+    private bool _gameEndEnabled;
+    private string _gameEndCurrentLocalText = "kein Termin gesetzt";
+    private string _gameEndInput = "";
+    private string? _gameEndResultMessage;
+    private List<ResetLogEntry> _resetLogs = [];
+    private const int ResetLogPageSize = 20;
+    private string _resetLogUserFilter = "";
+    private DateOnly? _resetLogFromDate;
+    private DateOnly? _resetLogToDate;
+    private int _resetLogPage = 1;
+    private int _resetLogTotalCount;
+    private int ResetLogTotalPages => Math.Max(1, (int)Math.Ceiling(_resetLogTotalCount / (double)ResetLogPageSize));
+    private List<AdminEditLogEntry> _adminLogs = [];
+    private List<AdminBusinessEditLogEntry> _businessLogs = [];
+    private List<AdminRoleEditLogEntry> _roleLogs = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (!Engine.IsInitialized)
+        {
+            await Engine.InitializeAsync();
+        }
+
+        _authorized = Engine.IsDev;
+        if (!_authorized)
+        {
+            Navigation.NavigateTo("/", replace: true);
+            return;
+        }
+
+        await ReloadLogsAsync();
+        await ReloadResetLogsAsync();
+        _currentHotspots = AdminToolSvc.GetFishingHotspots();
+        RefreshBoostStatus();
+        _maintenanceModeEnabled = AdminToolSvc.GetMaintenanceModeStatus();
+        RefreshGameEndStatus();
+    }
+
+    private void RefreshGameEndStatus()
+    {
+        var (enabled, endsAtUtc) = AdminToolSvc.GetGameEndStatus();
+        _gameEndEnabled = enabled;
+        _gameEndCurrentLocalText = endsAtUtc is { } value ? FormatGermanDateTimeDisplay(value) : "kein Termin gesetzt";
+        _gameEndInput = endsAtUtc is { } stored ? FormatGermanDateTimeInput(stored) : _gameEndInput;
+    }
+
+    private void RefreshBoostStatus()
+    {
+        var (isActive, multiplier, expiresUtc) = AdminToolSvc.GetRevenueBoostStatus();
+        _boostActive = isActive;
+        _boostCurrentMultiplier = multiplier;
+        _boostExpiresUtc = expiresUtc;
+    }
+
+    private async Task SetMaintenanceModeAsync(bool enabled)
+    {
+        try
+        {
+            var (success, message) = await AdminToolSvc.SetMaintenanceModeAsync(enabled);
+            _maintenanceModeResultMessage = message;
+            if (success)
+            {
+                _maintenanceModeEnabled = enabled;
+            }
+        }
+        catch (Exception)
+        {
+            _maintenanceModeResultMessage = "Wartungsmodus konnte nicht geändert werden, versuch's nochmal.";
+        }
+    }
+
+    private async Task SetGameEndAsync(bool enabled)
+    {
+        try
+        {
+            var endsAtUtc = ParseGermanDateTime(_gameEndInput);
+            if (enabled && endsAtUtc is null)
+            {
+                _gameEndResultMessage = "Bitte Datum und Uhrzeit festlegen, bevor du das Spielende aktivierst.";
+                return;
+            }
+
+            var (success, message) = await AdminToolSvc.SetGameEndAsync(enabled, endsAtUtc);
+            _gameEndResultMessage = message;
+            if (success)
+            {
+                RefreshGameEndStatus();
+            }
+        }
+        catch (Exception)
+        {
+            _gameEndResultMessage = "Spielende konnte nicht geändert werden, versuch's nochmal.";
+        }
+    }
+
+    private async Task StartBoostAsync()
+    {
+        try
+        {
+            var (success, message) = await AdminToolSvc.StartRevenueBoostAsync(_boostMultiplierInput, _boostMinutesInput);
+            _boostResultMessage = message;
+            if (success)
+            {
+                RefreshBoostStatus();
+            }
+        }
+        catch (Exception)
+        {
+            _boostResultMessage = "Boost konnte nicht gestartet werden, versuch's nochmal.";
+        }
+    }
+
+    private async Task StopBoostAsync()
+    {
+        try
+        {
+            var (success, message) = await AdminToolSvc.StopRevenueBoostAsync();
+            _boostResultMessage = message;
+            if (success)
+            {
+                RefreshBoostStatus();
+            }
+        }
+        catch (Exception)
+        {
+            _boostResultMessage = "Boost konnte nicht beendet werden, versuch's nochmal.";
+        }
+    }
+
+    private string FormatBoostCountdown()
+    {
+        if (_boostExpiresUtc is not { } expires)
+        {
+            return "";
+        }
+
+        var remaining = expires - DateTime.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+        {
+            return "0:00";
+        }
+
+        return remaining.ToString(remaining.TotalHours >= 1 ? @"h\:mm\:ss" : @"m\:ss");
+    }
+
+    private Task TriggerHotspotAsync()
+    {
+        var (success, message) = AdminToolSvc.TriggerFishingHotspot(_hotspotSpotId, _hotspotFishId);
+        _hotspotResultMessage = message;
+        if (success)
+        {
+            _currentHotspots = AdminToolSvc.GetFishingHotspots();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task ReloadLogsAsync()
+    {
+        _adminLogs = await AdminToolSvc.GetRecentAdminEditsAsync();
+        _businessLogs = await AdminToolSvc.GetRecentBusinessEditsAsync();
+        _roleLogs = await AdminToolSvc.GetRecentRoleEditsAsync();
+    }
+
+    private async Task ReloadResetLogsAsync()
+    {
+        var fromUtc = ParseGermanDateStart(_resetLogFromDate);
+        var toUtc = ParseGermanDateEnd(_resetLogToDate);
+
+        var (items, totalCount) = await AdminToolSvc.GetResetLogsAsync(
+            _resetLogUserFilter, fromUtc, toUtc, _resetLogPage, ResetLogPageSize);
+
+        _resetLogs = items;
+        _resetLogTotalCount = totalCount;
+    }
+
+    private async Task ApplyResetLogFilterAsync()
+    {
+        _resetLogPage = 1;
+        await ReloadResetLogsAsync();
+    }
+
+    private async Task ClearResetLogFilterAsync()
+    {
+        _resetLogUserFilter = "";
+        _resetLogFromDate = null;
+        _resetLogToDate = null;
+        _resetLogPage = 1;
+        await ReloadResetLogsAsync();
+    }
+
+    private async Task ChangeResetLogPageAsync(int delta)
+    {
+        var newPage = _resetLogPage + delta;
+        if (newPage < 1 || newPage > ResetLogTotalPages)
+        {
+            return;
+        }
+
+        _resetLogPage = newPage;
+        await ReloadResetLogsAsync();
+    }
+
+    private static DateTime? ParseGermanDateStart(DateOnly? date)
+    {
+        if (date is not { } value)
+        {
+            return null;
+        }
+
+        var localStart = DateTime.SpecifyKind(value.ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(localStart, GermanTimeZone);
+    }
+
+    private static DateTime? ParseGermanDateEnd(DateOnly? date)
+    {
+        if (date is not { } value)
+        {
+            return null;
+        }
+
+        var localEnd = DateTime.SpecifyKind(value.ToDateTime(TimeOnly.MaxValue), DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(localEnd, GermanTimeZone);
+    }
+
+    private async Task SearchAsync()
+    {
+        _searchResults = await AdminToolSvc.SearchAccountsAsync(_searchQuery);
+    }
+
+    private async Task OnSearchKeyDown(Microsoft.AspNetCore.Components.Web.KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SearchAsync();
+        }
+    }
+
+    private async Task SelectAccount(PlayerAccount account)
+    {
+        _selectedAccount = account;
+        _cashInput = account.Cash.ToString();
+        _cashSuffixIndex = -1;
+        _lifetimeInput = account.LifetimeEarnings.ToString();
+        _lifetimeSuffixIndex = -1;
+        _angelInput = account.AngelCount.ToString();
+        _angelSuffixIndex = -1;
+        _earningsAtLastResetInput = account.EarningsAtLastReset.ToString();
+        _earningsAtLastResetSuffixIndex = -1;
+        _oliModifierPercentInput = Math.Round(account.OliModifierPercent * 100, 4);
+        _prestigeCountInput = account.PrestigeCount;
+        _editResultMessage = null;
+        _businessEditResultMessage = null;
+        _moderatorResultMessage = null;
+        _fishingResultMessage = null;
+        _giveFishResultMessage = null;
+
+        var levels = await AdminToolSvc.GetBusinessLevelsAsync(account.TwitchUserId);
+        _businessLevelInputs = GameData.Businesses.ToDictionary(
+            b => b.Id,
+            b => (levels.TryGetValue(b.Id, out var owned) ? owned : 0).ToString());
+        _selectedUnlockProgressPercent = GameData.UnlockProgressPercent(levels);
+
+        _fishingInfo = await AdminToolSvc.GetFishingInfoAsync(account.TwitchUserId);
+        _fishingPearlsInput = _fishingInfo.Pearls.ToString();
+        _fishingRodLevelInput = _fishingInfo.RodLevel.ToString();
+        _fishingXpInput = _fishingInfo.FishingXp.ToString();
+        _fishingBaitInputs = _fishingInfo.BaitCounts.ToDictionary(b => b.BaitId, b => b.Count.ToString());
+    }
+
+    private string GetFishingBaitInput(string baitId) =>
+        _fishingBaitInputs.TryGetValue(baitId, out var value) ? value : "0";
+
+    private static string FormatQuestCountdown(TimeSpan remaining)
+    {
+        var minutes = Math.Max(0, (int)Math.Ceiling(remaining.TotalMinutes));
+        return minutes <= 1 ? "1 Min" : $"{minutes} Min";
+    }
+
+    private void SetFishingBaitInput(string baitId, string value)
+    {
+        _fishingBaitInputs[baitId] = value;
+    }
+
+    private async Task ApplyFishingAsync()
+    {
+        if (_selectedAccount is null)
+        {
+            return;
+        }
+
+        if (!long.TryParse(_fishingPearlsInput, out var pearls) ||
+            !int.TryParse(_fishingRodLevelInput, out var rodLevel) ||
+            !long.TryParse(_fishingXpInput, out var fishingXp))
+        {
+            _fishingResultMessage = "Eines der Felder ist keine gültige Zahl.";
+            return;
+        }
+
+        var baitCounts = new Dictionary<string, int>();
+        foreach (var bait in FishingData.Baits)
+        {
+            if (!int.TryParse(GetFishingBaitInput(bait.Id), out var count))
+            {
+                _fishingResultMessage = $"Ungültige Anzahl bei {bait.Name}.";
+                return;
+            }
+
+            baitCounts[bait.Id] = count;
+        }
+
+        try
+        {
+            var (success, message) = await AdminToolSvc.OverwriteFishingAsync(
+                _selectedAccount.TwitchUserId,
+                pearls,
+                rodLevel,
+                fishingXp,
+                baitCounts);
+
+            _fishingResultMessage = message;
+
+            if (success)
+            {
+                _fishingInfo = await AdminToolSvc.GetFishingInfoAsync(_selectedAccount.TwitchUserId);
+                _fishingPearlsInput = _fishingInfo.Pearls.ToString();
+                _fishingRodLevelInput = _fishingInfo.RodLevel.ToString();
+                _fishingXpInput = _fishingInfo.FishingXp.ToString();
+                _fishingBaitInputs = _fishingInfo.BaitCounts.ToDictionary(b => b.BaitId, b => b.Count.ToString());
+            }
+        }
+        catch (Exception ex)
+        {
+            _fishingResultMessage = $"Fehler beim Speichern: {ex.Message}";
+        }
+    }
+
+    private async Task GiveFishAsync()
+    {
+        if (_selectedAccount is null)
+        {
+            return;
+        }
+
+        if (!int.TryParse(_giveFishLevelInput, out var level) || !int.TryParse(_giveFishQuantityInput, out var quantity))
+        {
+            _giveFishResultMessage = "Level oder Anzahl ist keine gültige Zahl.";
+            return;
+        }
+
+        try
+        {
+            var (success, message) = await AdminToolSvc.GiveFishAsync(_selectedAccount.TwitchUserId, _giveFishId, level, quantity);
+            _giveFishResultMessage = message;
+
+            if (success)
+            {
+                _fishingInfo = await AdminToolSvc.GetFishingInfoAsync(_selectedAccount.TwitchUserId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _giveFishResultMessage = $"Fehler beim Speichern: {ex.Message}";
+        }
+    }
+
+    private string GetBusinessLevelInput(string businessId) =>
+        _businessLevelInputs.TryGetValue(businessId, out var value) ? value : "0";
+
+    private void OnBusinessLevelChanged(string businessId, Microsoft.AspNetCore.Components.ChangeEventArgs e)
+    {
+        _businessLevelInputs[businessId] = e.Value?.ToString() ?? "0";
+    }
+
+    private async Task ApplyBusinessLevelsAsync()
+    {
+        if (_selectedAccount is null)
+        {
+            return;
+        }
+
+        var ownedByBusinessId = new Dictionary<string, int>();
+        foreach (var (businessId, input) in _businessLevelInputs)
+        {
+            if (!int.TryParse(input, out var owned))
+            {
+                _businessEditResultMessage = $"Ungültiger Wert für {BusinessDisplayName(businessId)}.";
+                return;
+            }
+
+            ownedByBusinessId[businessId] = owned;
+        }
+
+        try
+        {
+            var (success, message) = await AdminToolSvc.OverwriteBusinessLevelsAsync(
+                _selectedAccount.TwitchUserId,
+                ownedByBusinessId,
+                Engine.CurrentTwitchUserId ?? "",
+                Engine.DisplayName ?? "Unbekannt");
+
+            _businessEditResultMessage = message;
+
+            if (success)
+            {
+                _selectedUnlockProgressPercent = GameData.UnlockProgressPercent(ownedByBusinessId);
+                await ReloadLogsAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _businessEditResultMessage = $"Fehler beim Speichern: {ex.Message}";
+        }
+    }
+
+    private async Task ApplyModeratorAsync(bool isModerator)
+    {
+        if (_selectedAccount is null)
+        {
+            return;
+        }
+
+        try
+        {
+            var (success, message) = await AdminToolSvc.SetModeratorAsync(
+                _selectedAccount.TwitchUserId,
+                isModerator,
+                Engine.CurrentTwitchUserId ?? "",
+                Engine.DisplayName ?? "Unbekannt");
+
+            _moderatorResultMessage = message;
+
+            if (success)
+            {
+                _selectedAccount.IsModerator = isModerator;
+                await ReloadLogsAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _moderatorResultMessage = $"Fehler beim Speichern: {ex.Message}";
+        }
+    }
+
+    private static string BusinessDisplayName(string businessId) =>
+        GameData.Businesses.FirstOrDefault(b => b.Id == businessId)?.Name ?? businessId;
+
+    private async Task ApplyEditAsync()
+    {
+        if (_selectedAccount is null)
+        {
+            return;
+        }
+
+        if (!TryCompose(_cashInput, _cashSuffixIndex, out var cash) ||
+            !TryCompose(_lifetimeInput, _lifetimeSuffixIndex, out var lifetime) ||
+            !TryCompose(_angelInput, _angelSuffixIndex, out var angels) ||
+            !TryCompose(_earningsAtLastResetInput, _earningsAtLastResetSuffixIndex, out var earningsAtLastReset))
+        {
+            _editResultMessage = "Eines der Felder ist keine gültige Zahl.";
+            return;
+        }
+
+        if (_prestigeCountInput < 0)
+        {
+            _editResultMessage = "Prestige-Zähler darf nicht negativ sein.";
+            return;
+        }
+
+        try
+        {
+            var (success, message) = await AdminToolSvc.OverwriteStatsAsync(
+                _selectedAccount.TwitchUserId,
+                cash,
+                lifetime,
+                angels,
+                earningsAtLastReset,
+                _oliModifierPercentInput / 100,
+                _prestigeCountInput,
+                Engine.CurrentTwitchUserId ?? "",
+                Engine.DisplayName ?? "Unbekannt");
+
+            _editResultMessage = message;
+
+            if (success)
+            {
+                _selectedAccount.PrestigeCount = _prestigeCountInput;
+                await ReloadLogsAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            _editResultMessage = $"Fehler beim Speichern: {ex.Message}";
+        }
+    }
+
+    private static bool TryCompose(string mantissa, int suffixIndex, out BigInteger value)
+    {
+        try
+        {
+            value = BigNumberFormatter.Compose(mantissa, suffixIndex);
+            return true;
+        }
+        catch (Exception ex) when (ex is FormatException or OverflowException)
+        {
+            value = default;
+            return false;
+        }
+    }
+
+    private static string PreviewValue(string mantissa, int suffixIndex)
+    {
+        return TryCompose(mantissa, suffixIndex, out var value) ? BigNumberFormatter.FormatPlain(value) : "ungültig";
+    }
+
+    private static string FormatBig(string raw)
+    {
+        return BigInteger.TryParse(raw, out var value) ? $"{BigNumberFormatter.FormatPlain(value)}" : raw;
+    }
+
+    private static string FormatOliPercent(double percent) =>
+        (percent >= 0 ? "+" : "") + Math.Round(percent * 100, 2) + "%";
+
+    private static readonly TimeZoneInfo GermanTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin");
+
+    private static string FormatGermanTime(DateTime utc)
+    {
+        var germanTime = TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), GermanTimeZone);
+        return germanTime.ToString("yyyy-MM-dd HH:mm:ss");
+    }
+
+    private static string FormatGermanDateTimeInput(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), GermanTimeZone).ToString("yyyy-MM-ddTHH:mm");
+
+    private static string FormatGermanDateTimeDisplay(DateTime utc) =>
+        TimeZoneInfo.ConvertTimeFromUtc(DateTime.SpecifyKind(utc, DateTimeKind.Utc), GermanTimeZone).ToString("dd.MM.yyyy 'um' HH:mm 'Uhr'");
+
+    private static DateTime? ParseGermanDateTime(string? input)
+    {
+        if (string.IsNullOrWhiteSpace(input) || !DateTime.TryParse(input, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var parsed))
+        {
+            return null;
+        }
+
+        var local = DateTime.SpecifyKind(parsed, DateTimeKind.Unspecified);
+        return TimeZoneInfo.ConvertTimeToUtc(local, GermanTimeZone);
+    }
+}

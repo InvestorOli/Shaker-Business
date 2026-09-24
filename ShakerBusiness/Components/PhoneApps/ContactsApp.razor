@@ -1,0 +1,144 @@
+@using ShakerBusiness.Data
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@inject GameEngineService Engine
+@inject PlayerSessionRegistry SessionRegistry
+@inject LeaderboardService Leaderboards
+
+<div class="flex h-full flex-col bg-cartel-cream text-cartel-ink">
+    @if (_adminUpgradesUserId is not null)
+    {
+        <div class="flex flex-shrink-0 items-center gap-2 border-b border-cartel-ink/10 bg-[#d9cfc0] px-3 py-2">
+            <button class="text-sm font-bold text-cartel-espresso hover:underline" @onclick="() => _adminUpgradesUserId = null">&lsaquo; Profil</button>
+        </div>
+        <div class="flex-1 overflow-y-auto">
+            <PlayerUpgradesAdminPanel TwitchUserId="@_adminUpgradesUserId"/>
+        </div>
+    }
+    else if (_selectedUserId is not null)
+    {
+        <div class="flex flex-shrink-0 items-center gap-2 border-b border-cartel-ink/10 bg-[#d9cfc0] px-3 py-2">
+            <button class="text-sm font-bold text-cartel-espresso hover:underline" @onclick="() => _selectedUserId = null">&lsaquo; Kontakte</button>
+        </div>
+        <div class="flex-1 overflow-y-auto">
+            <PlayerStatsPanel TwitchUserId="@_selectedUserId" OnShowAdminUpgrades="() => _adminUpgradesUserId = _selectedUserId"/>
+        </div>
+    }
+    else
+    {
+        <div class="flex flex-shrink-0 items-center justify-center gap-1.5 border-b border-cartel-ink/10 bg-[#d9cfc0] px-4 py-2 text-[0.68rem] font-semibold text-cartel-ink/60">
+            @_contacts.Count @(_contacts.Count == 1 ? "Kontakt" : "Kontakte")
+        </div>
+        <div class="flex-1 overflow-y-auto">
+            @if (_contacts.Count == 0)
+            {
+                <div class="p-6 text-center text-sm italic text-cartel-ink/50">Noch keine sichtbaren Spieler.</div>
+            }
+            else
+            {
+                @foreach (var contact in SortedContacts())
+                {
+                    var presence = SessionRegistry.GetPresence(contact.TwitchUserId);
+                    <button @key="contact.TwitchUserId" class="flex w-full items-center gap-2.5 border-b border-cartel-ink/5 px-3 py-2.5 text-left hover:bg-black/[0.03]" @onclick="() => _selectedUserId = contact.TwitchUserId">
+                        <div class="relative flex-shrink-0">
+                            <img src="@contact.ProfileImageUrl" alt="" class="h-8 w-8 rounded-full object-cover"/>
+                            <span title="@presence.Label()" class="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-cartel-cream @presence.DotColorClass()"></span>
+                        </div>
+                        <div class="flex min-w-0 flex-1 flex-col">
+                            <span class="flex items-center gap-1.5 truncate text-sm font-bold text-cartel-espresso">
+                                @contact.DisplayName
+                                @if (contact.IsModerator)
+                                {
+                                    <span class="rounded-[7px] bg-cartel-gold px-1 text-[0.58rem] font-bold uppercase tracking-wide text-cartel-espresso shadow-[0_1px_2px_rgba(0,0,0,0.3)]">Mod</span>
+                                }
+                                @if (GameData.IsRetired(contact.PrestigeCount))
+                                {
+                                    <span title="Spiel durchgespielt" class="rounded-[7px] bg-cartel-agave px-1 text-[0.58rem] font-bold uppercase tracking-wide text-white shadow-[0_1px_2px_rgba(0,0,0,0.3)]">In Rente</span>
+                                }
+                            </span>
+                            @if (presence == PresenceStatus.Offline)
+                            {
+                                <span class="text-[0.68rem] text-cartel-ink/50">@FormatLastSeen(contact.LastOnlineUtc)</span>
+                            }
+                            else
+                            {
+                                <span class="text-[0.68rem] font-semibold @presence.TextColorClass()">@presence.Label()</span>
+                            }
+                        </div>
+                    </button>
+                }
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public string? InitialUserId { get; set; }
+
+    private List<PlayerAccount> _contacts = [];
+    private string? _selectedUserId;
+    private string? _adminUpgradesUserId;
+    private string? _lastAppliedInitialUserId;
+
+    protected override void OnParametersSet()
+    {
+        if (InitialUserId is not null && InitialUserId != _lastAppliedInitialUserId)
+        {
+            _selectedUserId = InitialUserId;
+            _lastAppliedInitialUserId = InitialUserId;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _selectedUserId = InitialUserId;
+        _lastAppliedInitialUserId = InitialUserId;
+        await RefreshContactsAsync();
+    }
+
+    private List<PlayerAccount> SortedContacts() => _contacts
+        .OrderByDescending(c => SessionRegistry.IsOnline(c.TwitchUserId))
+        .ThenByDescending(c => c.LastOnlineUtc)
+        .ToList();
+
+    private async Task RefreshContactsAsync()
+    {
+        var accounts = await Leaderboards.GetAccountsAsync();
+        _contacts = accounts
+            .Where(p => p.TwitchUserId != Engine.CurrentTwitchUserId)
+            .OrderByDescending(p => p.LastOnlineUtc)
+            .ToList();
+        StateHasChanged();
+    }
+
+    private static string FormatLastSeen(DateTime lastOnlineUtc)
+    {
+        var diff = DateTime.UtcNow - lastOnlineUtc;
+
+        if (diff.TotalMinutes < 1)
+        {
+            return "Zuletzt online: gerade eben";
+        }
+
+        if (diff.TotalMinutes < 60)
+        {
+            var mins = (int)diff.TotalMinutes;
+            return $"Zuletzt online: vor {mins} {(mins == 1 ? "Minute" : "Minuten")}";
+        }
+
+        if (diff.TotalHours < 24)
+        {
+            var hours = (int)diff.TotalHours;
+            return $"Zuletzt online: vor {hours} {(hours == 1 ? "Stunde" : "Stunden")}";
+        }
+
+        if (diff.TotalDays < 30)
+        {
+            var days = (int)diff.TotalDays;
+            return $"Zuletzt online: vor {days} {(days == 1 ? "Tag" : "Tagen")}";
+        }
+
+        return $"Zuletzt online: {lastOnlineUtc.ToLocalTime():dd.MM.yyyy}";
+    }
+}

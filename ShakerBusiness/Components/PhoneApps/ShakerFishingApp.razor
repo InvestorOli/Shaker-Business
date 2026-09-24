@@ -1,0 +1,1285 @@
+@using System.Text.Json
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@implements IAsyncDisposable
+@inject FishingPondService FishingPond
+@inject GlobalChatService Chat
+@inject GameEngineService Engine
+@inject IJSRuntime JS
+
+<div class="relative flex h-full flex-col overflow-hidden bg-cartel-cream text-cartel-ink">
+    @if (Engine.IsGuest)
+    {
+        <div class="m-auto p-6 text-center text-sm italic text-cartel-ink/60">Angeln ist nur mit Twitch-Login verfügbar.</div>
+    }
+    else
+    {
+        <canvas id="fishing-pond-canvas" class="h-full w-full flex-1"></canvas>
+
+        <div class="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-2">
+            <div class="pointer-events-auto flex flex-col gap-1">
+                <div class="flex items-center gap-1.5 rounded-[7px] bg-black/55 px-2.5 py-1 text-xs font-bold text-cartel-cream">
+                    <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2l2.5 6.5L21 9l-5 4.5L17.5 21 12 17l-5.5 4L8 13.5 3 9l6.5-0.5z"/>
+                    </svg>
+                    Level @(_profile?.Level ?? 0)
+                </div>
+                <div class="flex items-center gap-1.5 rounded-[7px] bg-black/55 px-2.5 py-1 text-xs font-bold text-cartel-cream">
+                    <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 2v12"/>
+                        <path d="M12 14a4 4 0 1 0 4 4"/>
+                        <circle cx="12" cy="2" r="1.2" fill="currentColor" stroke="none"/>
+                    </svg>
+                    Rute Lv @(_profile?.RodLevel ?? 1)
+                </div>
+                <div class="flex items-center gap-1.5 rounded-[7px] bg-black/55 px-2.5 py-1 text-xs font-bold text-cartel-cream">
+                    <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="12" cy="12" r="8"/>
+                        <path d="M9 12a3 3 0 0 1 3-3"/>
+                    </svg>
+                    @(_profile?.Pearls ?? 0) Perlen
+                </div>
+                <div class="flex items-center gap-1.5 rounded-[7px] bg-black/55 px-2.5 py-1 text-xs font-bold text-cartel-cream">
+                    <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 flex-shrink-0" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M12 3c-2.5 2-4 4.5-4 7a4 4 0 0 0 8 0c0-1-.3-1.8-.8-2.7C14.5 8.5 13 7 12 3z"/>
+                    </svg>
+                    Köder: @(ActiveBaitName)
+                </div>
+            </div>
+            <div class="pointer-events-auto flex flex-col items-end gap-1">
+                @if (!_hasBite)
+                {
+                    <button class="relative flex items-center gap-1.5 rounded-[7px] bg-black/55 px-2.5 py-1.5 text-xs font-bold text-cartel-cream" @onclick="ToggleChat">
+                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+                        </svg>
+                        Chat
+                        @if (_hasUnreadChat)
+                        {
+                            <span class="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-cartel-crimson ring-2 ring-cartel-espresso"></span>
+                        }
+                    </button>
+                }
+                @if (!_casting)
+                {
+                    <button class="flex items-center gap-1.5 rounded-[7px] bg-black/55 px-2.5 py-1.5 text-xs font-bold text-cartel-cream" @onclick="TogglePanel">
+                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M4 8h16l-1.5 12h-13z"/>
+                            <path d="M9 8V6a3 3 0 0 1 6 0v2"/>
+                        </svg>
+                        Angel-Menü
+                    </button>
+                }
+            </div>
+        </div>
+
+        @if (_showChat)
+        {
+            <div class="pointer-events-auto absolute right-2 top-14 z-10 flex h-64 w-56 flex-col overflow-hidden rounded-[7px] bg-black/80 shadow-lg">
+                <div class="flex flex-shrink-0 items-center justify-between border-b border-white/10 px-2 py-1.5">
+                    <span class="text-xs font-bold text-cartel-cream">Teich-Chat</span>
+                    <button class="text-cartel-cream/60 hover:text-cartel-cream" @onclick="ToggleChat">✕</button>
+                </div>
+                <div class="flex-1 overflow-y-auto px-2 py-1.5" id="pond-chat-log">
+                    @{
+                        var chatMessages = Chat.GetMessages();
+                    }
+                    @if (chatMessages.Count == 0)
+                    {
+                        <div class="text-center text-[0.65rem] italic text-cartel-cream/40">Noch nichts los hier.</div>
+                    }
+                    @foreach (var msg in chatMessages.TakeLast(30))
+                    {
+                        @if (msg.IsSystemMessage)
+                        {
+                            <div @key="msg.Id" class="py-0.5 text-center text-[0.6rem] italic text-cartel-cream/40">@msg.Text</div>
+                        }
+                        else
+                        {
+                            <div @key="msg.Id" class="py-0.5 text-[0.68rem] leading-snug text-cartel-cream">
+                                <span class="font-bold text-cartel-gold">@msg.DisplayName:</span> @msg.Text
+                            </div>
+                        }
+                    }
+                </div>
+                @if (Chat.IsBanned(Engine.CurrentTwitchUserId ?? ""))
+                {
+                    <div class="flex-shrink-0 px-2 py-1.5 text-[0.6rem] text-cartel-crimson">Du bist vom Chat gesperrt.</div>
+                }
+                else
+                {
+                    <div class="flex flex-shrink-0 gap-1 border-t border-white/10 p-1.5">
+                        <input @bind="_chatDraft" @bind:event="oninput" @onkeydown="OnChatKeyDownAsync" maxlength="@GlobalChatService.MaxChars" placeholder="Nachricht..." class="min-w-0 flex-1 rounded-[7px] bg-white/10 px-2 py-1 text-[0.68rem] text-cartel-cream placeholder:text-cartel-cream/40"/>
+                        <button class="flex-shrink-0 rounded-[7px] bg-cartel-gold px-2 py-1 text-[0.6rem] font-bold text-cartel-espresso disabled:cursor-not-allowed disabled:opacity-40" disabled="@string.IsNullOrWhiteSpace(_chatDraft)" @onclick="SendChatAsync">➤</button>
+                    </div>
+                    @if (_chatError is not null)
+                    {
+                        <div class="flex-shrink-0 px-2 pb-1 text-[0.58rem] text-cartel-crimson">@_chatError</div>
+                    }
+                }
+            </div>
+        }
+
+        @if (_toast is not null)
+        {
+            <div class="pointer-events-none absolute inset-x-0 top-12 flex justify-center">
+                <div class="rounded-[7px] bg-black/75 px-3 py-1.5 text-xs font-bold text-cartel-gold">@_toast</div>
+            </div>
+        }
+
+        @if (_casting && !_hasBite)
+        {
+            <div class="pointer-events-none absolute inset-x-0 bottom-2 flex items-center justify-center">
+                <button class="pointer-events-auto rounded-[7px] bg-cartel-ink/80 px-4 py-2 text-xs font-bold text-cartel-cream shadow-lg" @onclick="CancelCastAsync">
+                    Leine einholen
+                </button>
+            </div>
+        }
+        else if (!_casting)
+        {
+            <div class="pointer-events-none absolute inset-x-0 bottom-1 flex justify-end pr-2">
+                <div class="whitespace-nowrap rounded-[7px] bg-black/55 px-2 py-1 text-[0.58rem] font-bold text-cartel-cream/90">
+                    Laufen: Steuerkreuz &middot; Angeln: Wasser tippen
+                </div>
+            </div>
+        }
+
+        <div id="fishing-joystick-base" class="absolute bottom-4 left-4 h-24 w-24 select-none rounded-full border-2 border-cartel-cream/40 bg-black/30 @(_casting ? "pointer-events-none opacity-0" : "pointer-events-auto opacity-100")" style="touch-action:none;">
+            <div id="fishing-joystick-knob" class="pointer-events-none absolute left-1/2 top-1/2 h-10 w-10 rounded-full bg-cartel-gold/85 shadow-lg" style="transform:translate(-50%,-50%);"></div>
+        </div>
+
+        @if (_showPanel)
+        {
+            <div class="absolute inset-0 flex flex-col bg-cartel-cream">
+                <div class="flex flex-shrink-0 items-center justify-between border-b border-cartel-ink/10 bg-[#d9cfc0] px-3 py-2">
+                    <span class="text-sm font-bold text-cartel-espresso">Angel-Menü</span>
+                    <button class="text-cartel-ink/60 hover:text-cartel-ink" @onclick="TogglePanel">✕</button>
+                </div>
+
+                <div class="flex flex-shrink-0 items-center justify-around border-b border-cartel-ink/10 bg-[#efe6d5] py-2.5">
+                    <div class="flex flex-col items-center">
+                        <span class="text-[0.58rem] font-semibold uppercase tracking-wide text-cartel-ink/50">Angler-Level</span>
+                        <span class="text-base font-extrabold text-cartel-espresso">@(_profile?.Level ?? 0)</span>
+                    </div>
+                    <div class="h-7 w-px bg-cartel-ink/15"></div>
+                    <div class="flex flex-col items-center">
+                        <span class="text-[0.58rem] font-semibold uppercase tracking-wide text-cartel-ink/50">Rute</span>
+                        <span class="text-base font-extrabold text-cartel-espresso">Lv @(_profile?.RodLevel ?? 1)</span>
+                    </div>
+                    <div class="h-7 w-px bg-cartel-ink/15"></div>
+                    <div class="flex flex-col items-center">
+                        <span class="text-[0.58rem] font-semibold uppercase tracking-wide text-cartel-ink/50">Perlen</span>
+                        <span class="text-base font-extrabold text-cartel-espresso">@(_profile?.Pearls ?? 0)</span>
+                    </div>
+                </div>
+
+                <div class="flex flex-shrink-0 flex-col gap-1 border-b border-cartel-ink/10 bg-[#efe6d5] px-3 pb-2.5">
+                    <div class="h-1.5 w-full overflow-hidden rounded-full bg-cartel-ink/10">
+                        <div class="h-full rounded-full bg-gradient-to-r from-cartel-gold to-cartel-rust" style="width:@(XpProgressPercent)%"></div>
+                    </div>
+                    <span class="text-center text-[0.58rem] text-cartel-ink/50">@(_profile?.XpIntoLevel ?? 0) / @(_profile?.XpSpanForLevel ?? 100) XP bis Level @((_profile?.Level ?? 0) + 1)</span>
+                </div>
+
+                <div class="grid flex-shrink-0 grid-cols-3 gap-1 bg-black/[0.03] p-2">
+                    <button class="@PanelTabClass(PanelTab.Rod)" @onclick="() => SwitchPanelTab(PanelTab.Rod)">Rute</button>
+                    <button class="@PanelTabClass(PanelTab.Bait)" @onclick="() => SwitchPanelTab(PanelTab.Bait)">Köder</button>
+                    <button class="@PanelTabClass(PanelTab.Quests)" @onclick="() => SwitchPanelTab(PanelTab.Quests)">Quests@(QuestsCompletedCount > 0 ? $" ({QuestsCompletedCount}/{_quests.Count})" : "")</button>
+                    <button class="@PanelTabClass(PanelTab.Catches)" @onclick="() => SwitchPanelTab(PanelTab.Catches)">Fänge@(_profile is { Inventory.Count: > 0 } ? $" ({_profile.Inventory.Count})" : "")</button>
+                    <button class="@PanelTabClass(PanelTab.Dex)" @onclick="() => SwitchPanelTab(PanelTab.Dex)">Buch@(_fishDex.Count > 0 ? $" ({FishDexDiscoveredCount}/{_fishDex.Count})" : "")</button>
+                    <button class="@PanelTabClass(PanelTab.Hotspot)" @onclick="() => SwitchPanelTab(PanelTab.Hotspot)">Hotspot</button>
+                </div>
+
+                <div class="flex-1 overflow-y-auto p-3">
+                    @if (_panelTab == PanelTab.Rod)
+                    {
+                        <div class="flex flex-col gap-2 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] p-3">
+                            <div class="flex items-center justify-between">
+                                <span class="flex items-center gap-1.5 text-sm font-bold text-cartel-espresso">
+                                    <svg viewBox="0 0 24 24" class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M12 2v12"/>
+                                        <path d="M12 14a4 4 0 1 0 4 4"/>
+                                        <circle cx="12" cy="2" r="1.2" fill="currentColor" stroke="none"/>
+                                    </svg>
+                                    Angelrute
+                                </span>
+                                <span class="rounded-[7px] bg-cartel-ink/10 px-1.5 py-0.5 text-[0.6rem] font-bold text-cartel-ink/70">Lv @(_profile?.RodLevel ?? 1) / @FishingData.MaxRodLevel</span>
+                            </div>
+                            <span class="text-xs text-cartel-ink/50">Höheres Level = seltenere Fischarten und ein höheres Fischlevel-Limit.</span>
+                            @if ((_profile?.RodLevel ?? 1) < FishingData.MaxRodLevel)
+                            {
+                                <button class="rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-3 py-2 text-sm font-bold text-cartel-espresso disabled:cursor-not-allowed disabled:from-[#a8a196] disabled:to-[#a8a196] disabled:text-white" disabled="@(_upgrading || _profile is null || _profile.Pearls < _profile.RodUpgradeCost)" @onclick="UpgradeRodAsync">
+                                    Upgrade (@(_profile?.RodUpgradeCost ?? 0) Perlen)
+                                </button>
+                            }
+                            else
+                            {
+                                <span class="text-xs italic text-cartel-ink/50">Maximale Stufe erreicht.</span>
+                            }
+                        </div>
+                    }
+                    else if (_panelTab == PanelTab.Bait)
+                    {
+                        <div class="flex flex-col gap-1.5">
+                            <span class="text-xs text-cartel-ink/50">Ohne Köder fängst du nur Common und Uncommon. Besserer Köder schaltet höhere Raritäten frei und erhöht die Fangchance.</span>
+                            <span class="text-xs text-cartel-ink/50">Neuen Köder kaufst du bei Investor Oli — lauf zu seinem Haus auf der Karte.</span>
+                            <div class="flex flex-col gap-1 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] px-2.5 py-2">
+                                <div class="flex items-center justify-between">
+                                    <button class="flex flex-1 items-center gap-1.5 text-left" @onclick="() => ToggleBaitBreakdown(NoBaitKey)">
+                                        <span class="min-w-0 flex-1">
+                                            <span class="text-xs font-semibold text-cartel-ink/70">Kein Köder</span>
+                                            <span class="ml-1 text-[0.6rem] text-cartel-ink/50">(Max. Rarität: @FishingData.NoBaitMaxRarity)</span>
+                                        </span>
+                                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 flex-shrink-0 text-cartel-ink/35 transition-transform @(_expandedBaitKey == NoBaitKey ? "rotate-180" : "")" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M6 9l6 6 6-6"/>
+                                        </svg>
+                                    </button>
+                                    <button class="rounded-[7px] px-2.5 py-1 text-[0.6rem] font-bold disabled:cursor-not-allowed disabled:opacity-60 @(_profile?.ActiveBaitId is null ? "bg-cartel-agave text-white" : "bg-cartel-ink/10 text-cartel-ink/60")" disabled="@(_settingBait || _profile?.ActiveBaitId is null)" @onclick="() => SetActiveBaitAsync(null)">
+                                        @(_profile?.ActiveBaitId is null ? "Aktiv" : "Wählen")
+                                    </button>
+                                </div>
+                                @if (_expandedBaitKey == NoBaitKey)
+                                {
+                                    <div class="mt-1 flex flex-col gap-1 border-t border-cartel-ink/10 pt-1.5">
+                                        @foreach (var entry in FishingData.GetRarityBreakdown(_profile?.RodLevel ?? 1, 0, FishingData.NoBaitMaxRarity))
+                                        {
+                                            <div class="flex flex-col gap-0.5">
+                                                <div class="flex items-center justify-between text-[0.62rem]">
+                                                    <span class="font-bold text-cartel-espresso">@entry.Rarity</span>
+                                                    <span class="font-bold text-cartel-agave">@(entry.Percentage.ToString("0.#"))%</span>
+                                                </div>
+                                                <span class="text-[0.58rem] text-cartel-ink/50">@string.Join(", ", entry.Fish.Select(f => f.Name))</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                            @foreach (var bait in FishingData.Baits)
+                            {
+                                var owned = _profile?.BaitInventory.FirstOrDefault(b => b.BaitId == bait.Id)?.Count ?? 0;
+                                var isActive = _profile?.ActiveBaitId == bait.Id;
+                                <div class="flex flex-col gap-1 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] px-2.5 py-2">
+                                    <div class="flex items-center justify-between gap-2">
+                                        <button class="flex min-w-0 flex-1 items-center gap-1.5 text-left" @onclick="() => ToggleBaitBreakdown(bait.Id)">
+                                            <span class="min-w-0 flex-1">
+                                                <span class="text-xs font-semibold text-cartel-espresso">@bait.Name</span>
+                                                <span class="block text-[0.6rem] text-cartel-ink/50">Max. Rarität: @bait.MaxRarity &middot; Raritäts-Bonus +@bait.RarityBonusLevels &middot; Besitz: @owned</span>
+                                            </span>
+                                            <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 flex-shrink-0 text-cartel-ink/35 transition-transform @(_expandedBaitKey == bait.Id ? "rotate-180" : "")" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M6 9l6 6 6-6"/>
+                                            </svg>
+                                        </button>
+                                        <div class="flex flex-shrink-0 items-center gap-1.5">
+                                            <button class="rounded-[7px] px-2.5 py-1.5 text-[0.65rem] font-bold disabled:cursor-not-allowed disabled:opacity-60 @(isActive ? "bg-cartel-agave text-white" : "bg-cartel-ink/10 text-cartel-ink/60")" disabled="@(_settingBait || owned <= 0 || isActive)" @onclick="() => SetActiveBaitAsync(bait.Id)">
+                                                @(isActive ? "Aktiv" : "Wählen")
+                                            </button>
+                                        </div>
+                                    </div>
+                                    @if (_expandedBaitKey == bait.Id)
+                                    {
+                                        <div class="mt-1 flex flex-col gap-1 border-t border-cartel-ink/10 pt-1.5">
+                                            @foreach (var entry in FishingData.GetRarityBreakdown(_profile?.RodLevel ?? 1, bait.RarityBonusLevels, bait.MaxRarity))
+                                            {
+                                                <div class="flex flex-col gap-0.5">
+                                                    <div class="flex items-center justify-between text-[0.62rem]">
+                                                        <span class="font-bold text-cartel-espresso">@entry.Rarity</span>
+                                                        <span class="font-bold text-cartel-agave">@(entry.Percentage.ToString("0.#"))%</span>
+                                                    </div>
+                                                    <span class="text-[0.58rem] text-cartel-ink/50">@string.Join(", ", entry.Fish.Select(f => f.Name))</span>
+                                                </div>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        </div>
+                    }
+                    else if (_panelTab == PanelTab.Quests)
+                    {
+                        <div class="mb-2 flex items-center justify-between rounded-[7px] bg-black/[0.03] px-2.5 py-2">
+                            <span class="text-xs font-bold text-cartel-espresso">Aktuelle Quests</span>
+                            <span class="text-[0.65rem] text-cartel-ink/50">Neue in @FormatQuestCountdown()</span>
+                        </div>
+                        <span class="text-xs text-cartel-ink/50">Alle Quests im Zeitfenster fertig: +@FishingData.QuestBatchXpBonus XP und @FishingData.QuestBatchBaitReward zufällige Köder als Bonus.</span>
+
+                        @if (_quests.Count == 0)
+                        {
+                            <div class="mt-2 rounded-[7px] bg-black/[0.03] px-3 py-2.5 text-xs italic text-cartel-ink/50">Lädt…</div>
+                        }
+                        else
+                        {
+                            <div class="mt-2 flex flex-col gap-1.5">
+                                @foreach (var quest in _quests)
+                                {
+                                    <div class="flex flex-col gap-1 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] px-2.5 py-2 @(quest.Completed ? "opacity-50" : "")">
+                                        @if (quest.Completed)
+                                        {
+                                            <div class="flex items-center gap-2">
+                                                <div class="h-6 w-6 flex-shrink-0 rounded-full" style="background:@quest.Color"></div>
+                                                <div class="flex min-w-0 flex-1 flex-col">
+                                                    <span class="truncate text-sm font-bold text-cartel-espresso">@quest.FishName fangen</span>
+                                                    <span class="text-[0.65rem] text-cartel-ink/50">@quest.Rarity &middot; +@FishingData.QuestXpForRarity(quest.Rarity) XP</span>
+                                                </div>
+                                                <svg viewBox="0 0 24 24" class="h-5 w-5 flex-shrink-0 text-cartel-agave" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M20 6 9 17l-5-5"/>
+                                                </svg>
+                                            </div>
+                                        }
+                                        else
+                                        {
+                                            <button class="flex items-center gap-2 text-left" @onclick="() => ToggleQuestBreakdown(quest.FishId)">
+                                                <div class="h-6 w-6 flex-shrink-0 rounded-full" style="background:@quest.Color"></div>
+                                                <div class="flex min-w-0 flex-1 flex-col">
+                                                    <span class="truncate text-sm font-bold text-cartel-espresso">@quest.FishName fangen</span>
+                                                    <span class="text-[0.65rem] text-cartel-ink/50">@quest.Rarity &middot; +@FishingData.QuestXpForRarity(quest.Rarity) XP</span>
+                                                </div>
+                                                <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 flex-shrink-0 text-cartel-ink/35 transition-transform @(_expandedQuestKey == quest.FishId ? "rotate-180" : "")" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M6 9l6 6 6-6"/>
+                                                </svg>
+                                            </button>
+                                            @if (_expandedQuestKey == quest.FishId)
+                                            {
+                                                <div class="mt-1 flex flex-col gap-1 border-t border-cartel-ink/10 pt-1.5">
+                                                    <div class="flex items-center justify-between text-[0.62rem]">
+                                                        <span class="text-cartel-ink/70">Kein Köder</span>
+                                                        <span class="font-bold text-cartel-agave">@(HotspotChances(quest.Rarity, 0, FishingData.NoBaitMaxRarity).Normal.ToString("0.#"))%</span>
+                                                    </div>
+                                                    @foreach (var bait in FishingData.Baits)
+                                                    {
+                                                        <div class="flex items-center justify-between text-[0.62rem]">
+                                                            <span class="text-cartel-ink/70">@bait.Name</span>
+                                                            <span class="font-bold text-cartel-agave">@(HotspotChances(quest.Rarity, bait.RarityBonusLevels, bait.MaxRarity).Normal.ToString("0.#"))%</span>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            }
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else if (_panelTab == PanelTab.Catches)
+                    {
+                        <span class="mb-1.5 block text-xs text-cartel-ink/50">Verkaufen kannst du deine Fänge bei Investor Oli — lauf zu seinem Haus auf der Karte.</span>
+
+                        @if (_profile is null || _profile.Inventory.Count == 0)
+                        {
+                            <div class="rounded-[7px] bg-black/[0.03] px-3 py-2.5 text-xs italic text-cartel-ink/50">Noch nichts gefangen.</div>
+                        }
+                        else
+                        {
+                            <div class="flex flex-col gap-1.5">
+                                @foreach (var item in _profile.Inventory)
+                                {
+                                    <div class="flex items-center gap-2 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] px-2.5 py-2">
+                                        <div class="h-6 w-6 flex-shrink-0 rounded-full" style="background:@item.Color"></div>
+                                        <div class="flex min-w-0 flex-1 flex-col">
+                                            <span class="truncate text-sm font-bold text-cartel-espresso">@item.Name</span>
+                                            <span class="text-[0.65rem] text-cartel-ink/50">@item.Rarity &middot; x@(item.Count) &middot; &oslash;Lv @item.AverageLevel &middot; @(item.TotalValue) Perlen</span>
+                                        </div>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                    else if (_panelTab == PanelTab.Dex)
+                    {
+                        <div class="mb-2 flex flex-col gap-1 rounded-[7px] bg-black/[0.03] px-2.5 py-2">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-cartel-espresso">Sammelbuch</span>
+                                <span class="text-[0.65rem] text-cartel-ink/50">@FishDexDiscoveredCount / @_fishDex.Count entdeckt</span>
+                            </div>
+                            <div class="h-1.5 w-full overflow-hidden rounded-full bg-cartel-ink/10">
+                                <div class="h-full rounded-full bg-gradient-to-r from-cartel-gold to-cartel-rust" style="width:@(FishDexProgressPercent)%"></div>
+                            </div>
+                        </div>
+
+                        @if (_fishDex.Count == 0)
+                        {
+                            <div class="rounded-[7px] bg-black/[0.03] px-3 py-2.5 text-xs italic text-cartel-ink/50">Lädt…</div>
+                        }
+                        else
+                        {
+                            @foreach (var group in _fishDex.GroupBy(e => e.Rarity))
+                            {
+                                <div class="mb-1.5 mt-2.5 text-[0.62rem] font-bold uppercase tracking-wide text-cartel-ink/50">@group.Key (@group.Count(e => e.Discovered)/@group.Count())</div>
+                                <div class="flex flex-col gap-1.5">
+                                    @foreach (var entry in group)
+                                    {
+                                        <div class="flex items-center gap-2 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] px-2.5 py-2 @(entry.Discovered ? "" : "opacity-50")">
+                                            <div class="h-6 w-6 flex-shrink-0 rounded-full" style="background:@(entry.Discovered ? entry.Color : "#8a8378")"></div>
+                                            <div class="flex min-w-0 flex-1 flex-col">
+                                                <span class="truncate text-sm font-bold text-cartel-espresso">@(entry.Discovered ? entry.Name : "???")</span>
+                                                @if (entry.Discovered)
+                                                {
+                                                    <span class="text-[0.65rem] text-cartel-ink/50">Gefangen &middot; Bestes Level @entry.BestLevel</span>
+                                                }
+                                                else
+                                                {
+                                                    <span class="text-[0.65rem] text-cartel-ink/50">Noch nicht entdeckt</span>
+                                                }
+                                            </div>
+                                            @if (entry.Discovered)
+                                            {
+                                                <svg viewBox="0 0 24 24" class="h-5 w-5 flex-shrink-0 text-cartel-agave" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path d="M20 6 9 17l-5-5"/>
+                                                </svg>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                    }
+                    else
+                    {
+                        <span class="text-xs text-cartel-ink/50">Wirfst du an einem dieser Spots deine Angel aus, ist die Chance auf genau diesen Fisch stark erhöht.</span>
+                        @if (_hotspots.Count == 0)
+                        {
+                            <div class="mt-2 rounded-[7px] bg-black/[0.03] px-3 py-2.5 text-xs italic text-cartel-ink/50">Aktuell kein Hotspot aktiv.</div>
+                        }
+                        else
+                        {
+                            <div class="mt-2 flex flex-col gap-1.5">
+                                @foreach (var hotspot in _hotspots)
+                                {
+                                    <div class="flex flex-col gap-1 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] p-3">
+                                        <button class="flex items-center gap-2 text-left" @onclick="() => ToggleHotspotBreakdown(hotspot.SpotId)">
+                                            <div class="h-6 w-6 flex-shrink-0 rounded-full" style="background:@hotspot.Color"></div>
+                                            <div class="flex min-w-0 flex-1 flex-col">
+                                                <span class="truncate text-sm font-bold text-cartel-espresso">@hotspot.FishName</span>
+                                                <span class="text-[0.65rem] text-cartel-ink/50">@hotspot.Rarity &middot; am Spot "@hotspot.SpotName" &middot; noch @FormatHotspotCountdown(hotspot)</span>
+                                            </div>
+                                            <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 flex-shrink-0 text-cartel-ink/35 transition-transform @(_expandedHotspotKey == hotspot.SpotId ? "rotate-180" : "")" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                <path d="M6 9l6 6 6-6"/>
+                                            </svg>
+                                        </button>
+                                        @if (_expandedHotspotKey == hotspot.SpotId)
+                                        {
+                                            <div class="mt-1 flex flex-col gap-1 border-t border-cartel-ink/10 pt-1.5">
+                                                <div class="flex items-center justify-between text-[0.62rem]">
+                                                    <span class="text-cartel-ink/70">Kein Köder</span>
+                                                    @{ var noBaitChances = HotspotChances(hotspot.Rarity, 0, FishingData.NoBaitMaxRarity); }
+                                                    <span class="flex items-center gap-1">
+                                                        <span class="text-cartel-ink/40">@(noBaitChances.Normal.ToString("0.#"))%</span>
+                                                        <span class="text-cartel-ink/30">&rarr;</span>
+                                                        <span class="font-bold text-cartel-agave">@(noBaitChances.Hotspot.ToString("0.#"))%</span>
+                                                        <span class="font-semibold text-cartel-gold">(+@((noBaitChances.Hotspot - noBaitChances.Normal).ToString("0.#"))%)</span>
+                                                    </span>
+                                                </div>
+                                                @foreach (var bait in FishingData.Baits)
+                                                {
+                                                    <div class="flex items-center justify-between text-[0.62rem]">
+                                                        <span class="text-cartel-ink/70">@bait.Name</span>
+                                                        @{ var baitChances = HotspotChances(hotspot.Rarity, bait.RarityBonusLevels, bait.MaxRarity); }
+                                                        <span class="flex items-center gap-1">
+                                                            <span class="text-cartel-ink/40">@(baitChances.Normal.ToString("0.#"))%</span>
+                                                            <span class="text-cartel-ink/30">&rarr;</span>
+                                                            <span class="font-bold text-cartel-agave">@(baitChances.Hotspot.ToString("0.#"))%</span>
+                                                            <span class="font-semibold text-cartel-gold">(+@((baitChances.Hotspot - baitChances.Normal).ToString("0.#"))%)</span>
+                                                        </span>
+                                                    </div>
+                                                }
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        }
+
+        @if (_showOliShop)
+        {
+            <div class="absolute inset-0 flex flex-col bg-cartel-cream">
+                <div class="flex flex-shrink-0 items-center justify-between border-b border-cartel-ink/10 bg-[#d9cfc0] px-3 py-2">
+                    <span class="text-sm font-bold text-cartel-espresso">Investor Oli</span>
+                    <button class="text-cartel-ink/60 hover:text-cartel-ink" @onclick="ToggleOliShop">✕</button>
+                </div>
+
+                <div class="flex flex-shrink-0 items-center gap-2 border-b border-cartel-ink/10 bg-[#efe6d5] px-3 py-2.5">
+                    <img src="images/businesses/Oli.png" alt="" class="h-9 w-9 flex-shrink-0 rounded-full border-2 border-cartel-gold object-cover"/>
+                    <span class="text-xs text-cartel-ink/60">"Amigo, zeig mir was du hast. Ich zahl fair, du kaufst fair, alles unter uns."</span>
+                </div>
+
+                <div class="flex-1 overflow-y-auto p-3">
+                    <div class="mb-2 flex items-center justify-between">
+                        <span class="text-sm font-bold text-cartel-espresso">Fänge verkaufen</span>
+                        @if (_profile is { Inventory.Count: > 0 })
+                        {
+                            <button class="rounded-[7px] bg-cartel-agave px-2.5 py-1.5 text-xs font-bold text-white" @onclick="SellAllAsync">Alle verkaufen</button>
+                        }
+                    </div>
+
+                    @if (_profile is null || _profile.Inventory.Count == 0)
+                    {
+                        <div class="rounded-[7px] bg-black/[0.03] px-3 py-2.5 text-xs italic text-cartel-ink/50">Noch nichts gefangen.</div>
+                    }
+                    else
+                    {
+                        <div class="flex flex-col gap-1.5">
+                            @foreach (var item in _profile.Inventory)
+                            {
+                                <div class="flex items-center gap-2 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] px-2.5 py-2">
+                                    <div class="h-6 w-6 flex-shrink-0 rounded-full" style="background:@item.Color"></div>
+                                    <div class="flex min-w-0 flex-1 flex-col">
+                                        <span class="truncate text-sm font-bold text-cartel-espresso">@item.Name</span>
+                                        <span class="text-[0.65rem] text-cartel-ink/50">@item.Rarity &middot; x@(item.Count) &middot; &oslash;Lv @item.AverageLevel &middot; @(item.TotalValue) Perlen</span>
+                                    </div>
+                                    <button class="flex-shrink-0 rounded-[7px] bg-cartel-agave px-2.5 py-1.5 text-xs font-bold text-white" @onclick="() => SellOneAsync(item.FishId)">
+                                        Verkaufen
+                                    </button>
+                                </div>
+                            }
+                        </div>
+                    }
+
+                    <div class="mb-2 mt-4 text-sm font-bold text-cartel-espresso">Köder kaufen</div>
+                    <div class="flex flex-col gap-1.5">
+                        @foreach (var bait in FishingData.Baits)
+                        {
+                            var owned = _profile?.BaitInventory.FirstOrDefault(b => b.BaitId == bait.Id)?.Count ?? 0;
+                            <div class="flex flex-col gap-1 rounded-[7px] border border-cartel-ink/10 bg-black/[0.03] px-2.5 py-2">
+                                <div class="flex items-center justify-between gap-2">
+                                    <button class="flex min-w-0 flex-1 items-center gap-1.5 text-left" @onclick="() => ToggleBaitBreakdown(bait.Id)">
+                                        <span class="min-w-0 flex-1">
+                                            <span class="text-xs font-semibold text-cartel-espresso">@bait.Name</span>
+                                            <span class="block text-[0.6rem] text-cartel-ink/50">Max. Rarität: @bait.MaxRarity &middot; Raritäts-Bonus +@bait.RarityBonusLevels &middot; Besitz: @owned</span>
+                                        </span>
+                                        <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 flex-shrink-0 text-cartel-ink/35 transition-transform @(_expandedBaitKey == bait.Id ? "rotate-180" : "")" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                            <path d="M6 9l6 6 6-6"/>
+                                        </svg>
+                                    </button>
+                                    <button class="flex-shrink-0 rounded-[7px] bg-gradient-to-b from-cartel-gold to-cartel-rust px-2.5 py-1.5 text-[0.65rem] font-bold text-cartel-espresso disabled:cursor-not-allowed disabled:opacity-40" disabled="@(_buyingBait || (_profile?.Pearls ?? 0) < bait.Price)" @onclick="() => BuyBaitAsync(bait.Id)">
+                                        Kaufen (@bait.Price)
+                                    </button>
+                                </div>
+                                @if (_expandedBaitKey == bait.Id)
+                                {
+                                    <div class="mt-1 flex flex-col gap-1 border-t border-cartel-ink/10 pt-1.5">
+                                        @foreach (var entry in FishingData.GetRarityBreakdown(_profile?.RodLevel ?? 1, bait.RarityBonusLevels, bait.MaxRarity))
+                                        {
+                                            <div class="flex flex-col gap-0.5">
+                                                <div class="flex items-center justify-between text-[0.62rem]">
+                                                    <span class="font-bold text-cartel-espresso">@entry.Rarity</span>
+                                                    <span class="font-bold text-cartel-agave">@(entry.Percentage.ToString("0.#"))%</span>
+                                                </div>
+                                                <span class="text-[0.58rem] text-cartel-ink/50">@string.Join(", ", entry.Fish.Select(f => f.Name))</span>
+                                            </div>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private enum PanelTab { Rod, Bait, Quests, Catches, Dex, Hotspot }
+
+    private DotNetObjectReference<ShakerFishingApp>? _selfRef;
+    private FishingProfileDto? _profile;
+    private List<FishingQuestDto> _quests = [];
+    private bool _showPanel;
+    private bool _showOliShop;
+    private PanelTab _panelTab = PanelTab.Rod;
+    private const string NoBaitKey = "__none__";
+    private string? _expandedBaitKey;
+    private string? _expandedHotspotKey;
+    private string? _expandedQuestKey;
+    private bool _casting;
+    private long _castToken;
+    private bool _hasBite;
+    private bool _upgrading;
+    private bool _selling;
+    private bool _buyingBait;
+    private bool _settingBait;
+    private string? _toast;
+    private bool _joined;
+    private bool _disposed;
+    private List<HotspotDto> _hotspots = [];
+    private List<FishDexEntryDto> _fishDex = [];
+    private bool _showChat;
+    private bool _hasUnreadChat;
+    private bool _pendingChatScroll;
+    private string _chatDraft = "";
+    private string? _chatError;
+    private DateTime _lastSeenChatUtc = DateTime.MinValue;
+    private System.Threading.Timer? _toastTimer;
+    private System.Threading.Timer? _questTimer;
+    private System.Threading.Timer? _hotspotTimer;
+
+    private double XpProgressPercent => _profile is null || _profile.XpSpanForLevel <= 0
+        ? 0
+        : Math.Clamp(_profile.XpIntoLevel / (double)_profile.XpSpanForLevel * 100, 0, 100);
+
+    private int QuestsCompletedCount => _quests.Count(q => q.Completed);
+
+    private int FishDexDiscoveredCount => _fishDex.Count(e => e.Discovered);
+
+    private double FishDexProgressPercent => _fishDex.Count == 0 ? 0 : FishDexDiscoveredCount * 100.0 / _fishDex.Count;
+
+    private string FormatQuestCountdown()
+    {
+        var remaining = _quests.Count > 0 ? _quests[0].TimeUntilRefresh : TimeSpan.Zero;
+        var minutes = Math.Max(0, (int)Math.Ceiling(remaining.TotalMinutes));
+        return minutes <= 1 ? "1 Min" : $"{minutes} Min";
+    }
+
+    private static string FormatHotspotCountdown(HotspotDto hotspot)
+    {
+        var minutes = Math.Max(0, (int)Math.Ceiling(hotspot.TimeRemaining.TotalMinutes));
+        return minutes <= 1 ? "1 Min" : $"{minutes} Min";
+    }
+
+    private string ActiveBaitName => _profile?.ActiveBaitId is { } baitId
+        ? FishingData.FindBait(baitId)?.Name ?? "Keiner"
+        : "Keiner";
+
+    private void ApplyHotspots(IReadOnlyList<HotspotDto> next)
+    {
+        var newOnes = next.Where(n => !_hotspots.Any(o => o.SpotId == n.SpotId && o.FishId == n.FishId)).ToList();
+        _hotspots = next.ToList();
+        if (newOnes.Count == 1)
+        {
+            var hotspot = newOnes[0];
+            ShowToast($"Hotspot: {hotspot.SpotName} – {hotspot.FishName}!", TimeSpan.FromSeconds(5));
+        }
+        else if (newOnes.Count > 1)
+        {
+            ShowToast($"{newOnes.Count} neue Hotspots aktiv!", TimeSpan.FromSeconds(5));
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        if (Engine.IsGuest)
+        {
+            return;
+        }
+
+        _profile = await FishingPond.GetProfileAsync(Engine.CurrentTwitchUserId!);
+        _quests = await FishingPond.GetQuestsAsync(Engine.CurrentTwitchUserId!);
+        _hotspots = FishingPond.GetHotspots().ToList();
+        _fishDex = await FishingPond.GetFishDexAsync(Engine.CurrentTwitchUserId!);
+        if (_disposed)
+        {
+            return;
+        }
+
+        FishingPond.OnChanged += HandleChanged;
+        _lastSeenChatUtc = DateTime.UtcNow;
+        Chat.OnChanged += HandleChatChanged;
+
+        _questTimer = new System.Threading.Timer(_ => InvokeAsync(async () =>
+        {
+            if (_disposed || Engine.CurrentTwitchUserId is null)
+            {
+                return;
+            }
+
+            _quests = await FishingPond.GetQuestsAsync(Engine.CurrentTwitchUserId);
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
+
+        _hotspotTimer = new System.Threading.Timer(_ => InvokeAsync(() =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            ApplyHotspots(FishingPond.GetHotspots());
+            StateHasChanged();
+        }), null, TimeSpan.FromSeconds(20), TimeSpan.FromSeconds(20));
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !Engine.IsGuest)
+        {
+            _selfRef = DotNetObjectReference.Create(this);
+            var x = 0.44 + Random.Shared.NextDouble() * 0.12;
+            var y = 0.30 + Random.Shared.NextDouble() * 0.04;
+            FishingPond.Join(Engine.CurrentTwitchUserId!, Engine.DisplayName ?? "Spieler", Engine.ProfileImageUrl, x, y);
+            _joined = true;
+
+            try
+            {
+                var spotsJson = JsonSerializer.Serialize(FishingData.FishingSpots.Select(s => new { id = s.Id, name = s.Name, cx = s.CenterX, cy = s.CenterY, rx = s.RadiusX, ry = s.RadiusY }));
+                await JS.InvokeVoidAsync("shakerFishingPond.init", "fishing-pond-canvas", _selfRef, Engine.CurrentTwitchUserId, Engine.DisplayName ?? "Spieler", Engine.ProfileImageUrl, x, y, spotsJson, FishingData.CameraViewSize, FishingData.OliShackX, FishingData.OliShackY, FishingData.OliShackInteractionRadius);
+                await PushPlayersAsync();
+                await PushCastColorAsync();
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+
+        if (_pendingChatScroll && _showChat)
+        {
+            _pendingChatScroll = false;
+            try
+            {
+                await JS.InvokeVoidAsync("oliChatScrollToBottom", "pond-chat-log");
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+        }
+    }
+
+    private string ActiveBaitColor => FishingData.FindBait(_profile?.ActiveBaitId)?.Color ?? FishingPondService.DefaultCastColor;
+
+    private async Task PushCastColorAsync()
+    {
+        if (Engine.CurrentTwitchUserId is not null)
+        {
+            FishingPond.SetCastColor(Engine.CurrentTwitchUserId, _profile?.ActiveBaitId);
+        }
+
+        if (_disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("shakerFishingPond.setCastColor", ActiveBaitColor);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task RefreshProfileAsync(string twitchUserId)
+    {
+        _profile = await FishingPond.GetProfileAsync(twitchUserId);
+        await PushCastColorAsync();
+    }
+
+    private static readonly TimeSpan PushCoalesceInterval = TimeSpan.FromMilliseconds(100);
+    private int _pushScheduled;
+
+    private void HandleChanged()
+    {
+        if (Interlocked.Exchange(ref _pushScheduled, 1) == 1)
+        {
+            return;
+        }
+
+        _ = InvokeAsync(async () =>
+        {
+            await Task.Delay(PushCoalesceInterval);
+            Volatile.Write(ref _pushScheduled, 0);
+            await PushPlayersAsync();
+        });
+    }
+
+    private void HandleChatChanged()
+    {
+        _ = InvokeAsync(async () =>
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _pendingChatScroll = true;
+            var newMessages = Chat.GetMessages().Where(m => !m.IsSystemMessage && m.SentUtc > _lastSeenChatUtc).ToList();
+            if (newMessages.Count > 0)
+            {
+                _lastSeenChatUtc = newMessages.Max(m => m.SentUtc);
+                if (!_showChat)
+                {
+                    _hasUnreadChat = true;
+                }
+            }
+
+            foreach (var msg in newMessages)
+            {
+                try
+                {
+                    await JS.InvokeVoidAsync("shakerFishingPond.showChatBubble", msg.TwitchUserId, msg.Text);
+                }
+                catch (JSDisconnectedException)
+                {
+                }
+            }
+
+            StateHasChanged();
+        });
+    }
+
+    private void ToggleChat()
+    {
+        _showChat = !_showChat;
+        _chatError = null;
+        if (_showChat)
+        {
+            _pendingChatScroll = true;
+            _hasUnreadChat = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task OnChatKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter")
+        {
+            await SendChatAsync();
+        }
+    }
+
+    private async Task SendChatAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_chatDraft) || Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        var (success, error) = await Chat.PostMessageAsync(Engine.CurrentTwitchUserId, Engine.DisplayName ?? "Spieler", Engine.ProfileImageUrl, Engine.IsModerator, Engine.IsDev, false, _chatDraft, Engine.PrestigeCount);
+        if (success)
+        {
+            _chatDraft = "";
+            _chatError = null;
+            _pendingChatScroll = true;
+        }
+        else
+        {
+            _chatError = error;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task PushPlayersAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        var players = FishingPond.GetPlayers(Engine.CurrentTwitchUserId)
+            .Select(p => new
+            {
+                twitchUserId = p.TwitchUserId,
+                displayName = p.DisplayName,
+                profileImageUrl = p.ProfileImageUrl,
+                x = p.X,
+                y = p.Y,
+                isCasting = p.IsCasting,
+                castX = p.CastX,
+                castY = p.CastY,
+                hasBite = p.HasBite,
+                castColor = p.CastColor,
+            })
+            .ToList();
+
+        var json = JsonSerializer.Serialize(players);
+
+        try
+        {
+            await JS.InvokeVoidAsync("shakerFishingPond.syncPlayers", json);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    [JSInvokable]
+    public Task OnLocalMove(double x, double y)
+    {
+        if (!_disposed && Engine.CurrentTwitchUserId is not null)
+        {
+            FishingPond.UpdatePosition(Engine.CurrentTwitchUserId, Engine.DisplayName ?? "Spieler", Engine.ProfileImageUrl, x, y);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public Task OnOliShackClicked()
+    {
+        if (_disposed || _casting || Engine.CurrentTwitchUserId is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (!FishingPond.TryGetPlayerPosition(Engine.CurrentTwitchUserId, out var x, out var y))
+        {
+            return Task.CompletedTask;
+        }
+
+        var dx = x - FishingData.OliShackX;
+        var dy = y - FishingData.OliShackY;
+        if (dx * dx + dy * dy > FishingData.OliShackInteractionRadius * FishingData.OliShackInteractionRadius)
+        {
+            ShowToast("Du musst näher an Olis Haus heran.");
+            return Task.CompletedTask;
+        }
+
+        _showOliShop = true;
+        _showPanel = false;
+        _showChat = false;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    [JSInvokable]
+    public async Task OnCastRequested(double x, double y)
+    {
+        if (_disposed || Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        var started = FishingPond.StartCast(Engine.CurrentTwitchUserId, x, y);
+        if (!started)
+        {
+            try
+            {
+                await JS.InvokeVoidAsync("shakerFishingPond.setCasting", false);
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            return;
+        }
+
+        var myCastToken = ++_castToken;
+        _casting = true;
+        _hasBite = false;
+        StateHasChanged();
+
+        var delayMs = 5000 + Random.Shared.Next(0, 20000);
+        await Task.Delay(delayMs);
+
+        if (_disposed || !_casting || myCastToken != _castToken)
+        {
+            return;
+        }
+
+        var (fish, level, qteSeed) = await FishingPond.TriggerBiteAsync(Engine.CurrentTwitchUserId);
+        if (_disposed || myCastToken != _castToken)
+        {
+            return;
+        }
+
+        if (fish is null || !_casting)
+        {
+            await ResetCastStateAsync();
+            return;
+        }
+
+        _hasBite = true;
+        _showChat = false;
+        _showOliShop = false;
+        StateHasChanged();
+
+        try
+        {
+            await JS.InvokeVoidAsync("shakerFishingPond.notifyBite");
+            await JS.InvokeVoidAsync("shakerFishingPond.startQte", fish.Difficulty, qteSeed);
+        }
+        catch (JSDisconnectedException)
+        {
+            FishingPond.CancelCast(Engine.CurrentTwitchUserId);
+            _casting = false;
+            _hasBite = false;
+        }
+    }
+
+    private async Task ResetCastStateAsync()
+    {
+        if (Engine.CurrentTwitchUserId is not null)
+        {
+            FishingPond.CancelCast(Engine.CurrentTwitchUserId);
+        }
+
+        _casting = false;
+        _hasBite = false;
+        StateHasChanged();
+
+        try
+        {
+            await JS.InvokeVoidAsync("shakerFishingPond.setCasting", false);
+            await JS.InvokeVoidAsync("shakerFishingPond.clearBite");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    [JSInvokable]
+    public Task OnCastWatchdogTimeout()
+    {
+        if (!_disposed)
+        {
+            _ = ResetCastStateAsync();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private async Task CancelCastAsync()
+    {
+        if (Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        await ResetCastStateAsync();
+    }
+
+    [JSInvokable]
+    public async Task OnCatchAttemptFinished(List<QteInputEventDto> events, double elapsedMs)
+    {
+        if (_disposed || Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        var (success, fish, level, xpGained, questCompleted, batchBaitReward) = await FishingPond.ResolveCatchAsync(Engine.CurrentTwitchUserId, events, elapsedMs);
+        _casting = false;
+        _hasBite = false;
+
+        if (fish is not null)
+        {
+            if (success)
+            {
+                var value = FishingData.FishSellValue(fish, level, _profile?.RodLevel ?? 1);
+                var questSuffix = questCompleted ? " Quest erfüllt!" : "";
+                var batchSuffix = batchBaitReward is null ? "" : $" Alle Quests erledigt! Bonus: {FormatBatchBaitReward(batchBaitReward)}";
+                ShowToast($"{fish.Name} (Lv {level}) gefangen! Wert: {value} Perlen, +{xpGained} XP.{questSuffix}{batchSuffix}", batchBaitReward is not null ? TimeSpan.FromSeconds(6) : null);
+            }
+            else
+            {
+                ShowToast($"{fish.Name} ist entkommen...");
+            }
+        }
+
+        await RefreshProfileAsync(Engine.CurrentTwitchUserId);
+        if (questCompleted)
+        {
+            _quests = await FishingPond.GetQuestsAsync(Engine.CurrentTwitchUserId);
+        }
+
+        if (success)
+        {
+            _fishDex = await FishingPond.GetFishDexAsync(Engine.CurrentTwitchUserId);
+        }
+
+        StateHasChanged();
+
+        try
+        {
+            await JS.InvokeVoidAsync("shakerFishingPond.clearBite");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private static string FormatBatchBaitReward(IReadOnlyDictionary<string, int> reward)
+    {
+        return string.Join(", ", reward
+            .OrderByDescending(kv => kv.Value)
+            .Select(kv => $"{kv.Value}x {FishingData.FindBait(kv.Key)?.Name ?? kv.Key}"));
+    }
+
+    private void ShowToast(string message, TimeSpan? duration = null)
+    {
+        _toast = message;
+        _toastTimer?.Dispose();
+        _toastTimer = new System.Threading.Timer(_ => InvokeAsync(() =>
+        {
+            _toast = null;
+            StateHasChanged();
+        }), null, duration ?? TimeSpan.FromSeconds(3), Timeout.InfiniteTimeSpan);
+        StateHasChanged();
+    }
+
+    private void TogglePanel()
+    {
+        if (_casting)
+        {
+            return;
+        }
+
+        _showPanel = !_showPanel;
+        if (_showPanel)
+        {
+            _showOliShop = false;
+        }
+
+        StateHasChanged();
+    }
+
+    private void ToggleOliShop()
+    {
+        _showOliShop = !_showOliShop;
+        StateHasChanged();
+    }
+
+    private void SwitchPanelTab(PanelTab tab)
+    {
+        _panelTab = tab;
+        StateHasChanged();
+    }
+
+    private void ToggleBaitBreakdown(string key)
+    {
+        _expandedBaitKey = _expandedBaitKey == key ? null : key;
+        StateHasChanged();
+    }
+
+    private void ToggleHotspotBreakdown(string spotId)
+    {
+        _expandedHotspotKey = _expandedHotspotKey == spotId ? null : spotId;
+        StateHasChanged();
+    }
+
+    private void ToggleQuestBreakdown(string fishId)
+    {
+        _expandedQuestKey = _expandedQuestKey == fishId ? null : fishId;
+        StateHasChanged();
+    }
+
+    private (double Normal, double Hotspot) HotspotChances(FishRarity rarity, int rarityBonusLevels, FishRarity maxRarity)
+    {
+        var breakdown = FishingData.GetRarityBreakdown(_profile?.RodLevel ?? 1, rarityBonusLevels, maxRarity);
+        var hotspotChance = breakdown.FirstOrDefault(e => e.Rarity == rarity)?.Percentage ?? 0;
+        var speciesCount = FishingData.Fish.Count(f => f.Rarity == rarity);
+        var normalChance = speciesCount > 0 ? hotspotChance / speciesCount : 0;
+        return (normalChance, hotspotChance);
+    }
+
+    private const string PanelTabBase = "truncate rounded-[7px] px-1.5 py-1.5 text-[0.68rem] font-bold transition-colors";
+
+    private string PanelTabClass(PanelTab tab) => _panelTab == tab
+        ? $"{PanelTabBase} bg-cartel-gold text-cartel-espresso"
+        : $"{PanelTabBase} bg-transparent text-cartel-ink/60 hover:text-cartel-ink";
+
+    private async Task UpgradeRodAsync()
+    {
+        if (_upgrading || _profile is null || Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        _upgrading = true;
+        var (success, _) = await FishingPond.UpgradeRodAsync(Engine.CurrentTwitchUserId);
+        if (success)
+        {
+            await RefreshProfileAsync(Engine.CurrentTwitchUserId);
+        }
+
+        _upgrading = false;
+    }
+
+    private async Task BuyBaitAsync(string baitId)
+    {
+        if (_buyingBait || Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        _buyingBait = true;
+        var (success, _) = await FishingPond.BuyBaitAsync(Engine.CurrentTwitchUserId, baitId, 1);
+        if (success)
+        {
+            await RefreshProfileAsync(Engine.CurrentTwitchUserId);
+        }
+
+        _buyingBait = false;
+    }
+
+    private async Task SetActiveBaitAsync(string? baitId)
+    {
+        if (_settingBait || Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        _settingBait = true;
+        await FishingPond.SetActiveBaitAsync(Engine.CurrentTwitchUserId, baitId);
+        await RefreshProfileAsync(Engine.CurrentTwitchUserId);
+        _settingBait = false;
+    }
+
+    private async Task SellOneAsync(string fishId)
+    {
+        if (_selling || Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        _selling = true;
+        var value = await FishingPond.SellFishAsync(Engine.CurrentTwitchUserId, fishId);
+        if (value > 0)
+        {
+            await RefreshProfileAsync(Engine.CurrentTwitchUserId);
+        }
+
+        _selling = false;
+    }
+
+    private async Task SellAllAsync()
+    {
+        if (_selling || Engine.CurrentTwitchUserId is null)
+        {
+            return;
+        }
+
+        _selling = true;
+        var value = await FishingPond.SellAllFishAsync(Engine.CurrentTwitchUserId);
+        if (value > 0)
+        {
+            await RefreshProfileAsync(Engine.CurrentTwitchUserId);
+        }
+
+        _selling = false;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        _toastTimer?.Dispose();
+        _questTimer?.Dispose();
+        _hotspotTimer?.Dispose();
+        Chat.OnChanged -= HandleChatChanged;
+        FishingPond.OnChanged -= HandleChanged;
+
+        if (_joined && Engine.CurrentTwitchUserId is not null)
+        {
+            FishingPond.Leave(Engine.CurrentTwitchUserId);
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("shakerFishingPond.destroy");
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (JSException)
+        {
+        }
+
+        _selfRef?.Dispose();
+    }
+}

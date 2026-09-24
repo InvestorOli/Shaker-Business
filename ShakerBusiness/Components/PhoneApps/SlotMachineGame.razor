@@ -1,0 +1,439 @@
+@using System.Globalization
+@using ShakerBusiness.Models
+@using ShakerBusiness.Services
+@implements IDisposable
+@inject IJSRuntime JS
+@inject GameEngineService Engine
+@inject SlotWalletService Wallet
+
+<div class="relative flex h-full flex-col gap-1.5 overflow-hidden bg-[radial-gradient(ellipse_at_top,#5a1414_0%,#2a0808_60%,#140404_100%)] p-2 text-cartel-cream select-none">
+    <div class="flex items-center justify-between gap-2">
+        <button class="rounded-[7px] bg-black/40 px-2.5 py-1 text-xs font-bold text-cartel-gold-light" @onclick="LeaveAsync">&lsaquo; Zurück</button>
+        <span class="font-display text-base tracking-wide text-cartel-gold-light drop-shadow-[0_0_8px_rgba(240,207,122,0.7)]">OLI'S SLOTS</span>
+        <button class="rounded-[7px] bg-black/40 px-2.5 py-1 text-xs font-bold text-cartel-gold-light" @onclick="() => _showPaytable = true">Tabelle</button>
+    </div>
+
+    <div class="grid grid-cols-2 gap-1.5">
+        <div class="rounded-[7px] border-2 border-cartel-gold/60 bg-black px-2 py-0.5 text-center">
+            <div class="text-[0.5rem] uppercase leading-tight tracking-[0.2em] text-cartel-gold/70">Guthaben</div>
+            <div class="font-mono text-base font-bold leading-tight text-cartel-gold-light">@Format(_balance)</div>
+        </div>
+        <div class="rounded-[7px] border-2 border-cartel-gold/60 bg-black px-2 py-0.5 text-center">
+            <div class="text-[0.5rem] uppercase leading-tight tracking-[0.2em] text-cartel-gold/70">Gewinn</div>
+            <div class="@(_lastWin > 0 ? "text-[#7be05a]" : "text-cartel-gold-light") font-mono text-base font-bold leading-tight">@Format(_lastWin)</div>
+        </div>
+    </div>
+
+    <div class="flex min-h-0 flex-1 items-center justify-center [container-type:size]">
+        <div class="w-[min(100cqw,calc(100cqh_-_12px))] flex-shrink-0 rounded-[14px] bg-gradient-to-b from-cartel-gold-light via-cartel-gold to-cartel-rust p-1.5 shadow-[0_0_18px_rgba(217,164,65,0.45)]">
+            <div class="flex justify-around px-1 pb-1.5">
+                @for (var bulb = 0; bulb < BulbCount; bulb++)
+                {
+                    <span class="h-1.5 w-1.5 rounded-full bg-[#fff3c4] animate-slot-bulb" style="animation-delay:@(bulb % 2 == 0 ? "0s" : "-0.5s")"></span>
+                }
+            </div>
+            <div class="grid grid-cols-5 gap-[3px] rounded-[8px] bg-black p-[3px]">
+                @for (var reel = 0; reel < SlotMachine.ReelCount; reel++)
+                {
+                    var reelIndex = reel;
+                    <div class="aspect-[1/5] overflow-hidden rounded-[4px] bg-cartel-cream">
+                        @if (_reelSpinning[reelIndex])
+                        {
+                            <div class="flex flex-col animate-slot-spin blur-[1px]">
+                                @for (var pass = 0; pass < 2; pass++)
+                                {
+                                    foreach (var symbolId in _strips[reelIndex])
+                                    {
+                                        <div class="@TileClass(false, false)">
+                                            <img src="@SlotMachine.Symbols[symbolId].ImagePath" alt="" class="@SymbolImageClass(symbolId)"/>
+                                        </div>
+                                    }
+                                }
+                            </div>
+                        }
+                        else
+                        {
+                            <div class="flex flex-col @(_justStopped[reelIndex] ? "animate-slot-drop" : "")">
+                                @for (var row = 0; row < SlotMachine.RowCount; row++)
+                                {
+                                    var symbolId = _reels[reelIndex][row];
+                                    var highlighted = _winCells.Contains(CellKey(reelIndex, row));
+                                    <div class="@TileClass(highlighted, _winCells.Count > 0)">
+                                        <img src="@SlotMachine.Symbols[symbolId].ImagePath" alt="@SlotMachine.Symbols[symbolId].Name" class="@SymbolImageClass(symbolId) @(highlighted ? "animate-slot-win" : "")"/>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+            <div class="flex justify-around px-1 pt-1.5">
+                @for (var bulb = 0; bulb < BulbCount; bulb++)
+                {
+                    <span class="h-1.5 w-1.5 rounded-full bg-[#fff3c4] animate-slot-bulb" style="animation-delay:@(bulb % 2 == 0 ? "-0.5s" : "0s")"></span>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="min-h-[1rem] text-center text-[0.7rem] font-semibold leading-tight text-cartel-gold-light">@_message</div>
+
+    @if (IsBroke)
+    {
+        <div class="flex flex-col gap-1.5 rounded-[10px] border-2 border-cartel-crimson bg-black/60 p-2 text-center">
+            <span class="text-sm font-bold text-cartel-gold-light">Pleite, amigo!</span>
+            <span class="text-xs leading-relaxed text-cartel-cream/80">Schreib <strong class="text-cartel-gold-light">@RefillPhrase</strong> in das Feld, dann schiebt Oli dir wieder @Format(SlotWalletService.StartingBalance) rüber.</span>
+            <input type="text" class="w-full rounded-[7px] border-2 border-cartel-gold/70 bg-black px-3 py-1.5 text-center text-sm font-bold text-cartel-gold-light placeholder:text-cartel-gold/30 focus:outline-none" placeholder="@RefillPhrase" autocomplete="off" spellcheck="false" value="@_refillInput" @oninput="OnRefillInputAsync"/>
+        </div>
+    }
+    else
+    {
+        <div class="grid grid-cols-[auto_1fr_auto] items-center gap-1.5">
+            <button class="@ControlButtonClass" disabled="@(_spinning || !_walletLoaded || _betIndex == 0)" @onclick="LowerBet">&minus;</button>
+            <div class="rounded-[7px] border-2 border-cartel-gold/60 bg-black px-2 py-0.5 text-center">
+                <div class="text-[0.5rem] uppercase leading-tight tracking-[0.2em] text-cartel-gold/70">Einsatz &middot; @SlotMachine.PayLines.Count Linien</div>
+                <div class="font-mono text-base font-bold leading-tight text-cartel-gold-light">@Format(Bet)</div>
+            </div>
+            <button class="@ControlButtonClass" disabled="@(_spinning || !_walletLoaded || !CanRaiseBet)" @onclick="RaiseBet">+</button>
+        </div>
+
+        <div class="grid grid-cols-[1fr_1.6fr_1fr] items-stretch gap-1.5">
+            <button class="@ControlButtonClass text-xs" disabled="@(_spinning || !_walletLoaded)" @onclick="MaxBet">MAX</button>
+            <button class="rounded-[999px] bg-gradient-to-b from-[#7be05a] to-[#2f7a1e] px-3 py-2 text-base font-extrabold uppercase tracking-widest text-white shadow-[0_4px_0_#1c4a12,0_0_14px_rgba(123,224,90,0.55)] transition-transform active:translate-y-0.5 disabled:opacity-50" disabled="@(_spinning || !_walletLoaded)" @onclick="SpinAsync">Spin</button>
+            <button class="@ControlButtonClass text-xs @(_auto ? "!bg-cartel-crimson !text-white" : "")" disabled="@(!_walletLoaded)" @onclick="ToggleAutoAsync">@(_auto ? "STOPP" : "AUTO")</button>
+        </div>
+    }
+
+    <p class="m-0 text-center text-[0.55rem] leading-tight text-cartel-cream/50">Nur Spielgeld ohne Wert. Kein echtes Casino. Kein echtes Geld.</p>
+
+    @if (_showPaytable)
+    {
+        <div class="absolute inset-0 z-20 flex flex-col gap-1.5 overflow-y-auto bg-black/90 p-2">
+            <div class="flex items-center justify-between">
+                <span class="font-display text-base text-cartel-gold-light">Gewinntabelle</span>
+                <button class="rounded-[7px] bg-cartel-gold px-3 py-1 text-xs font-bold text-cartel-espresso" @onclick="() => _showPaytable = false">Schließen</button>
+            </div>
+            <p class="m-0 text-xs leading-relaxed text-cartel-cream/80">
+                @SlotMachine.PayLines.Count Gewinnlinien. Drei oder mehr gleiche Symbole von links nach rechts auf einer Linie zahlen. Oli ist Wild und ersetzt jedes Symbol.
+                Gewinnchance pro Dreh: @((SlotMachine.WinChance * 100).ToString("0.#", CultureInfo.InvariantCulture)) %.
+            </p>
+            <div class="flex flex-col gap-0.5">
+                @foreach (var symbol in SlotMachine.Symbols.OrderByDescending(s => s.PayFive))
+                {
+                    <div class="flex items-center gap-2 rounded-[7px] bg-white/10 px-2 py-0.5">
+                        <img src="@symbol.ImagePath" alt="" class="h-6 w-6 flex-shrink-0 rounded-full border border-cartel-gold/60 object-cover"/>
+                        <span class="min-w-0 flex-1 truncate text-xs font-bold">@(symbol.Name + (symbol.IsWild ? " (Wild)" : ""))</span>
+                        <span class="text-[0.7rem] text-cartel-gold-light">3x @symbol.PayThree &middot; 4x @symbol.PayFour &middot; 5x @symbol.PayFive</span>
+                    </div>
+                }
+            </div>
+            <p class="m-0 text-center text-[0.65rem] text-cartel-cream/50">Werte sind Vielfache des Linieneinsatzes (Einsatz geteilt durch @SlotMachine.PayLines.Count).</p>
+        </div>
+    }
+
+    @if (_showWin)
+    {
+        <div class="absolute inset-0 z-30 flex items-center justify-center bg-black/85 p-4">
+            <div class="flex w-full max-w-[19rem] flex-col items-center gap-3 rounded-[14px] border-4 border-cartel-gold bg-gradient-to-b from-[#5a1414] to-[#1c0606] p-4 text-center shadow-[0_0_30px_rgba(217,164,65,0.6)] animate-slot-pop">
+                <span class="text-[0.7rem] font-bold uppercase tracking-[0.3em] text-cartel-gold-light">Gewonnen: @Format(_lastWin)</span>
+                <span class="font-display text-2xl leading-tight text-cartel-gold-light drop-shadow-[0_0_10px_rgba(240,207,122,0.8)]">Nur Looser spielen Slots!</span>
+                <p class="m-0 text-sm leading-relaxed text-cartel-cream/80">
+                    Glückwunsch, amigo. Ein Gewinn bei einer Chance von @((SlotMachine.WinChance * 100).ToString("0.#", CultureInfo.InvariantCulture)) %. Und jetzt sieh dich an: du sitzt in einem Idle-Game vor einem Spielautomaten.
+                </p>
+                <button class="rounded-[7px] bg-gradient-to-b from-cartel-gold-light to-cartel-rust px-4 py-2 text-sm font-bold text-cartel-espresso" @onclick="() => _showWin = false">Ich bin ein Looser</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public EventCallback OnLeave { get; set; }
+
+    private static readonly int[] Bets = [10, 20, 50, 100, 200, 500];
+    private static readonly CultureInfo GermanCulture = CultureInfo.GetCultureInfo("de-DE");
+    private static readonly string[] LossMessages =
+    [
+        "Knapp daneben, amigo. Wie immer.",
+        "Das Haus gewinnt. Das Haus heißt Oli.",
+        "Nichts. Aber der Gedanke zählt.",
+        "Noch ein Dreh und du bist reich. Sagen alle.",
+        "Die Walzen mögen dich nicht.",
+        "Oli lacht schon.",
+    ];
+
+    private const string RefillPhrase = "Fick Gambling";
+    private const int BulbCount = 12;
+    private const int FirstStopMs = 700;
+    private const int NextStopMs = 320;
+    private const int AutoPauseMs = 900;
+
+    private readonly CancellationTokenSource _cts = new();
+    private readonly bool[] _reelSpinning = new bool[SlotMachine.ReelCount];
+    private readonly bool[] _justStopped = new bool[SlotMachine.ReelCount];
+    private readonly int[][] _strips = new int[SlotMachine.ReelCount][];
+    private readonly HashSet<int> _winCells = [];
+    private int[][] _reels = SlotMachine.CreateIdleReels(Random.Shared);
+    private int _balance;
+    private int _betIndex = 1;
+    private int _lastWin;
+    private bool _spinning;
+    private bool _auto;
+    private bool _showWin;
+    private bool _showPaytable;
+    private bool _disposed;
+    private bool _walletLoaded;
+    private string _refillInput = "";
+    private string _message = "Viel Glück, amigo!";
+
+    private int Bet => Bets[_betIndex];
+
+    private string OwnerId => Engine.CurrentTwitchUserId ?? "guest";
+
+    private bool IsBroke => _walletLoaded && !_spinning && _balance < Bets[0];
+
+    private bool CanRaiseBet => _betIndex < Bets.Length - 1 && Bets[_betIndex + 1] <= _balance;
+
+    private static string Format(int value) => value.ToString("N0", GermanCulture) + " €";
+
+    private static int CellKey(int reel, int row) => (reel * SlotMachine.RowCount) + row;
+
+    private const string ControlButtonClass = "rounded-[7px] border-2 border-cartel-gold/70 bg-black/60 px-3 py-1 text-base font-extrabold text-cartel-gold-light transition-colors hover:bg-black/80 disabled:opacity-40";
+
+    private static string TileClass(bool highlighted, bool dimmed) => highlighted
+        ? "flex aspect-square w-full items-center justify-center bg-cartel-gold-light"
+        : dimmed
+            ? "flex aspect-square w-full items-center justify-center border-b border-cartel-adobe/20 opacity-40"
+            : "flex aspect-square w-full items-center justify-center border-b border-cartel-adobe/20";
+
+    private static string SymbolImageClass(int symbolId) => SlotMachine.Symbols[symbolId].IsWild
+        ? "h-[86%] w-[86%] rounded-full border-2 border-cartel-gold object-cover shadow-[0_0_8px_rgba(217,164,65,0.9)]"
+        : "h-[86%] w-[86%] rounded-full border border-cartel-espresso/40 object-cover";
+
+    private void LowerBet()
+    {
+        if (!_spinning && _betIndex > 0)
+        {
+            _betIndex--;
+        }
+    }
+
+    private void RaiseBet()
+    {
+        if (!_spinning && _betIndex < Bets.Length - 1)
+        {
+            _betIndex++;
+        }
+    }
+
+    private void MaxBet()
+    {
+        if (!_spinning)
+        {
+            _betIndex = Math.Max(0, Array.FindLastIndex(Bets, bet => bet <= _balance));
+        }
+    }
+
+    private void FitBetToBalance()
+    {
+        while (_betIndex > 0 && Bet > _balance)
+        {
+            _betIndex--;
+        }
+    }
+
+    private async Task OnRefillInputAsync(ChangeEventArgs args)
+    {
+        _refillInput = args.Value?.ToString() ?? "";
+        if (!IsBroke || !string.Equals(_refillInput.Trim(), RefillPhrase, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _refillInput = "";
+        _balance = SlotWalletService.StartingBalance;
+        _betIndex = 1;
+        _lastWin = 0;
+        _message = $"Oli schiebt dir {Format(SlotWalletService.StartingBalance)} rüber. Natürlich mit Zinsen.";
+        await SaveWalletAsync();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        string? token;
+        try
+        {
+            token = await JS.InvokeAsync<string?>("shakerEffects.readSlotWallet", OwnerId);
+        }
+        catch (Exception ex) when (IsCircuitGone(ex))
+        {
+            return;
+        }
+
+        var (state, balance) = Wallet.Read(OwnerId, token);
+        _balance = balance;
+        FitBetToBalance();
+        if (state == SlotWalletState.Tampered)
+        {
+            _message = "Manipulation erkannt, amigo. Dein Guthaben ist weg.";
+        }
+
+        _walletLoaded = true;
+        if (state != SlotWalletState.Valid)
+        {
+            await SaveWalletAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task SaveWalletAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("shakerEffects.storeSlotWallet", OwnerId, Wallet.Protect(OwnerId, _balance));
+        }
+        catch (Exception ex) when (IsCircuitGone(ex))
+        {
+        }
+    }
+
+    private static bool IsCircuitGone(Exception ex) => ex is JSDisconnectedException or OperationCanceledException or InvalidOperationException;
+
+    private async Task LeaveAsync()
+    {
+        _auto = false;
+        await OnLeave.InvokeAsync();
+    }
+
+    private async Task SpinAsync()
+    {
+        if (_spinning || _disposed || !_walletLoaded || _balance < Bet)
+        {
+            return;
+        }
+
+        var bet = Bet;
+        var spin = SlotMachine.Spin(Random.Shared);
+        _spinning = true;
+        _balance -= bet;
+        _lastWin = 0;
+        _winCells.Clear();
+        _message = "Die Walzen laufen ...";
+        for (var reel = 0; reel < SlotMachine.ReelCount; reel++)
+        {
+            _reelSpinning[reel] = true;
+            _justStopped[reel] = false;
+            _strips[reel] = Enumerable.Range(0, SlotMachine.RowCount).Select(_ => SlotMachine.RandomSymbolId(Random.Shared)).ToArray();
+        }
+
+        Play("shakerAudio.playStart");
+        StateHasChanged();
+        await SaveWalletAsync();
+        if (_disposed)
+        {
+            return;
+        }
+
+        try
+        {
+            for (var reel = 0; reel < SlotMachine.ReelCount; reel++)
+            {
+                await Task.Delay(reel == 0 ? FirstStopMs : NextStopMs, _cts.Token);
+                _reels[reel] = spin.Reels[reel];
+                _reelSpinning[reel] = false;
+                _justStopped[reel] = true;
+                Play("shakerAudio.playClick");
+                StateHasChanged();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        SettleSpin(spin, bet);
+    }
+
+    private void SettleSpin(SlotSpin spin, int bet)
+    {
+        _spinning = false;
+        if (!spin.IsWin)
+        {
+            _message = LossMessages[Random.Shared.Next(LossMessages.Length)];
+            FitBetToBalance();
+            StateHasChanged();
+            return;
+        }
+
+        foreach (var win in spin.Wins)
+        {
+            var line = SlotMachine.PayLines[win.LineIndex];
+            for (var reel = 0; reel < win.Length; reel++)
+            {
+                _winCells.Add(CellKey(reel, line[reel]));
+            }
+        }
+
+        _lastWin = spin.TotalMultiplier * (bet / SlotMachine.PayLines.Count);
+        _balance = (int)Math.Min((long)_balance + _lastWin, SlotWalletService.MaxBalance);
+        FitBetToBalance();
+        _ = SaveWalletAsync();
+        _message = $"{spin.Wins.Count} Gewinnlinie{(spin.Wins.Count == 1 ? "" : "n")}!";
+        _auto = false;
+        _showWin = true;
+        Play("shakerAudio.playJa");
+        StateHasChanged();
+    }
+
+    private async Task ToggleAutoAsync()
+    {
+        if (_auto)
+        {
+            _auto = false;
+            return;
+        }
+
+        _auto = true;
+        try
+        {
+            while (_auto && !_disposed && !_showWin && _balance >= Bet)
+            {
+                await SpinAsync();
+                await Task.Delay(AutoPauseMs, _cts.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        _auto = false;
+        StateHasChanged();
+    }
+
+    private void Play(string method) => _ = PlayAsync(method);
+
+    private async Task PlayAsync(string method)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync(method);
+        }
+        catch (Exception ex) when (IsCircuitGone(ex))
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _auto = false;
+        _cts.Cancel();
+    }
+}
